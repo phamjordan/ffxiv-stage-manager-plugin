@@ -1,5 +1,8 @@
 import { BRIDGE_PORT, calibration, compilePackage, findVenue, fromWorld, normalizeEmote, scopeKey } from './game-model.js';
 
+const CORNERS = ['Front-left', 'Front-right', 'Back-right', 'Back-left'];
+const freshCorners = () => [{u:200,v:550},{u:1000,v:550},{u:1000,v:150},{u:200,v:150}];
+
 export function initGameBridge({ getContext, saveCurrentStage }) {
   const css = document.createElement('link');
   css.rel = 'stylesheet'; css.href = new URL('./game-bridge.css', import.meta.url).href;
@@ -20,8 +23,16 @@ export function initGameBridge({ getContext, saveCurrentStage }) {
       <p class="game-status" data-status role="status">Disconnected</p>
       <p>Keep this browser open during rehearsal. Music and spoken reminders continue here.</p>
     </details>
-    <details data-editor><summary>2 · Calibrate the stage</summary>
-      <p>Use three widely separated spots on the same floor. Pick each spot on the map, stand there in-game, then capture it. Map X/Y are canvas coordinates.</p>
+    <details data-editor data-calibration><summary>2 · Calibrate the stage</summary>
+      <p>Capture the four stage corners on the same floor, going around the rectangle in the order below. Left and right refer to this map, with the audience at the bottom.</p>
+      <div class="game-corner-guide" aria-label="Corner order: 1 front-left, 2 front-right, 3 back-right, 4 back-left; audience below">
+        <span>4 · Back-left</span><span>3 · Back-right</span>
+        <span class="game-corner-stage">STAGE</span>
+        <span>1 · Front-left</span><span>2 · Front-right</span>
+        <small>AUDIENCE</small>
+      </div>
+      <p>For each corner, pick its map location, stand at the matching corner in FFXIV, then capture it.</p>
+      <p data-calibration-note></p>
       <label>Venue name <input data-venue-name value="Main stage" maxlength="80"></label>
       <div data-anchors></div>
       <button data-save-venue>Save calibration to this song</button>
@@ -50,7 +61,11 @@ export function initGameBridge({ getContext, saveCurrentStage }) {
   const $ = key => panel.querySelector(`[data-${key}]`);
   $('origin').textContent = location.origin;
   let token = '', connected = false, sending = false, lastPackage = '', sequence = 0, sessionId = '';
-  let anchors = [], pickIndex = null, lastSelection = '', lastSong = '', anchorSong = '';
+  let anchors = [], pickIndex = null, lastSelection = '', lastSong = '', anchorSong = '', boundaryKey = '';
+  const stageSvg = document.getElementById('stageSvg');
+  const boundaryLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  boundaryLayer.id = 'gameVenueBoundary'; boundaryLayer.setAttribute('pointer-events', 'none');
+  stageSvg.insertBefore(boundaryLayer, stageSvg.querySelector('#stageCast'));
   const status = text => { $('status').textContent = text; };
   const run = fn => async () => { try { await fn(); } catch (e) { status(e.message); } };
   const current = () => {
@@ -80,7 +95,8 @@ export function initGameBridge({ getContext, saveCurrentStage }) {
   };
 
   button.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden) refresh(true); };
-  $('close').onclick = () => { panel.hidden = true; pickIndex = null; };
+  $('close').onclick = () => { panel.hidden = true; pickIndex = null; drawBoundary(getContext()); };
+  $('calibration').addEventListener('toggle', () => drawBoundary(getContext()));
   $('connect').onclick = run(async () => {
     token = $('token').value.trim(); await request('snapshot', {});
     connected = true; lastPackage = ''; sequence = 0; sessionId = crypto.randomUUID(); status('Connected. Calibrate the stage to send choreography.');
@@ -90,25 +106,48 @@ export function initGameBridge({ getContext, saveCurrentStage }) {
 
   function drawAnchors() {
     $('anchors').replaceChildren();
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       const row = document.createElement('div'); row.className = 'game-anchor';
-      row.innerHTML = `<strong>Point ${i + 1}</strong><div class="game-row"><label>Map X<input type="number" data-u></label><label>Map Y<input type="number" data-v></label></div><div class="game-row"><button data-pick>Pick on map</button><button data-capture>Capture in-game</button></div><small data-result></small>`;
+      row.innerHTML = `<strong>${i + 1} · ${CORNERS[i]}</strong><div class="game-row"><label>Map X<input type="number" data-u></label><label>Map Y<input type="number" data-v></label></div><div class="game-row"><button data-pick>Pick on map</button><button data-capture>Capture in-game</button></div><small data-result></small>`;
       const a = anchors[i];
       row.querySelector('[data-u]').value = a.u; row.querySelector('[data-v]').value = a.v;
-      row.querySelector('[data-u]').oninput = e => { a.u = Number(e.target.value); };
-      row.querySelector('[data-v]').oninput = e => { a.v = Number(e.target.value); };
+      row.querySelector('[data-u]').oninput = e => { a.u = Number(e.target.value); drawBoundary(getContext()); };
+      row.querySelector('[data-v]').oninput = e => { a.v = Number(e.target.value); drawBoundary(getContext()); };
       row.querySelector('[data-result]').textContent = a.world ? `XYZ ${a.world.x.toFixed(2)}, ${a.world.y.toFixed(2)}, ${a.world.z.toFixed(2)}` : 'Not captured';
-      row.querySelector('[data-pick]').onclick = () => { pickIndex = i; status(`Click point ${i + 1} on the stage map.`); };
+      row.querySelector('[data-pick]').onclick = () => { pickIndex = i; status(`Click corner ${i + 1} (${CORNERS[i]}) on the stage map.`); };
       row.querySelector('[data-capture]').onclick = run(async () => {
         const ctx = edit(), songId = ctx.song.id, p = await snapshot();
         if (current().song.id !== songId) throw new Error('Song changed; capture again.');
-        a.world = p.position; a.scope = p.scope; drawAnchors(); status(`Captured point ${i + 1}.`);
+        a.world = p.position; a.scope = p.scope; drawAnchors(); status(`Captured corner ${i + 1} (${CORNERS[i]}).`);
       });
       $('anchors').appendChild(row);
     }
+    drawBoundary(getContext());
   }
-  document.getElementById('stageSvg').addEventListener('pointerdown', e => {
+  function drawBoundary(ctx) {
+    const draft = !panel.hidden && $('calibration').open && ctx.canEdit && anchorSong === ctx.song?.id;
+    const points = draft ? anchors : findVenue(ctx.slides)?.anchors;
+    const usable = ctx.active && points?.length === 4 && points.every(p => Number.isFinite(p.u) && Number.isFinite(p.v));
+    const key = usable ? JSON.stringify([draft, points.map(p => [p.u,p.v,Boolean(p.world)])]) : '';
+    if (key === boundaryKey) return;
+    boundaryKey = key; boundaryLayer.replaceChildren();
+    if (!usable) return;
+    const add = (tag, attributes, text) => {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [name, value] of Object.entries(attributes)) el.setAttribute(name, value);
+      if (text) el.textContent = text;
+      boundaryLayer.appendChild(el);
+    };
+    const color = draft ? '#f4c75a' : '#76dbe8';
+    add('polygon', { points: points.map(p => `${p.u},${p.v}`).join(' '), fill: color, 'fill-opacity': '.04', stroke: color, 'stroke-width': '3', 'stroke-dasharray': draft ? '12 8' : 'none' });
+    points.forEach((p, i) => {
+      add('circle', {cx:p.u, cy:p.v, r:12, fill:p.world ? color : '#28231b', stroke:color, 'stroke-width':2});
+      add('text', {x:p.u, y:p.v+5, 'text-anchor':'middle', 'font-size':15, 'font-weight':700, fill:p.world ? '#15120e' : color}, String(i+1));
+    });
+  }
+  stageSvg.addEventListener('pointerdown', e => {
     if (pickIndex === null) return;
+    if (!getContext().canEdit) { pickIndex = null; return; }
     e.preventDefault(); e.stopImmediatePropagation();
     const svg = e.currentTarget, point = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
     anchors[pickIndex].u = Math.round(point.x); anchors[pickIndex].v = Math.round(point.y);
@@ -116,7 +155,7 @@ export function initGameBridge({ getContext, saveCurrentStage }) {
   }, true);
   $('save-venue').onclick = run(() => {
     const ctx = edit();
-    if (anchors.some(a => !a.world || !a.scope)) throw new Error('Capture all three points.');
+    if (anchors.length !== 4 || anchors.some(a => !a.world || !a.scope)) throw new Error('Capture all four corners.');
     if (anchors.some(a => scopeKey(a.scope) !== scopeKey(anchors[0].scope))) throw new Error('All points must be in the same venue.');
     if (anchors.some(a => Math.abs(a.world.y - anchors[0].world.y) > .25)) throw new Error('Calibrate on one level floor; use actor height offsets for raised platforms.');
     const venue = { id: crypto.randomUUID(), revision: Date.now(), name: $('venue-name').value || 'Stage', scope: anchors[0].scope, anchors: structuredClone(anchors) };
@@ -172,15 +211,20 @@ export function initGameBridge({ getContext, saveCurrentStage }) {
       lastSelection = selection; refreshActor();
     }
     const venue = findVenue(ctx.slides);
-    $('venue-status').textContent = venue ? `Using ${venue.name}. Floor Y = ${venue.anchors[0].world.y.toFixed(2)}.` : 'No calibration yet.';
+    $('calibration-note').textContent = venue?.anchors?.length === 3 ? 'Your saved three-point calibration is still active. Capture and save all four corners to replace it and show the boundary.' : 'The numbered outline previews your stage boundary. Save after capturing all four corners.';
+    try {
+      const fit = venue ? calibration(venue) : null;
+      $('venue-status').textContent = venue ? `Using ${venue.name}. Floor Y = ${venue.anchors[0].world.y.toFixed(2)}.${fit.maxError !== undefined ? ` Four-corner alignment: ${fit.maxError.toFixed(2)} units maximum offset.` : ''}` : 'No calibration yet.';
+    } catch (e) { $('venue-status').textContent = e.message; }
     if (anchorSong !== ctx.song?.id) {
-      anchors = venue ? structuredClone(venue.anchors) : [{u:200,v:550},{u:1000,v:550},{u:200,v:150}];
+      anchors = venue?.anchors?.length === 4 ? structuredClone(venue.anchors) : freshCorners();
       $('venue-name').value = venue?.name || 'Main stage'; anchorSong = ctx.song?.id; drawAnchors();
     }
   }
 
   async function tick() {
     if (!panel.hidden) refresh();
+    drawBoundary(getContext());
     if (!connected || sending) return;
     sending = true;
     try {

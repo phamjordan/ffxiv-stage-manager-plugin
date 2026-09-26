@@ -9,6 +9,8 @@ const venue = { id: 'theatre', name: 'Test theatre', revision: 1, scope, anchors
   { u: 1100, v: 500, world: { x: 10, y: 3, z: 40 }, scope },
   { u: 100, v: 100, world: { x: 18, y: 3, z: 20 }, scope },
 ] };
+const fourVenue = { ...structuredClone(venue), anchors: [structuredClone(venue.anchors[0]), structuredClone(venue.anchors[1]),
+  { u: 1100, v: 100, world: { x: 18, y: 3, z: 40 }, scope }, structuredClone(venue.anchors[2])] };
 const context = {
   song: { id: 'song', title: 'Rehearsal fixture', duration_ms: 20000 },
   cast: [{ id: 'alice', character_name: 'Alice Actor', world: 'Ravana', role_name: 'Lead' }, { id: 'bob', character_name: 'Bob Actor', world: 'Ravana', role_name: 'Ensemble' }],
@@ -70,4 +72,48 @@ test('exports by timestamp, while retaining stable IDs and newest calibration', 
   c.slides[0].stage_data.game_venue = { ...venue, revision: 2, name: 'New stage' };
   assert.equal(findVenue(c.slides).name, 'New stage');
   assert.deepEqual(compilePackage(c).slides.map(s => s.id), ['opening', 'chorus', 'exit']);
+});
+
+test('four corners preserve a rectangular stage, its center and floor height', () => {
+  for (const a of fourVenue.anchors) {
+    const w = toWorld(fourVenue, { x: a.u, y: a.v });
+    close(w.x, a.world.x); close(w.y, a.world.y); close(w.z, a.world.z);
+  }
+  const center = toWorld(fourVenue, { x: 600, y: 300, game: {height: 1.25} });
+  close(center.x, 14); close(center.y, 4.25); close(center.z, 30);
+  close(calibration(fourVenue).maxError, 0);
+});
+test('all four observations contribute to the fitted alignment', () => {
+  const measured = structuredClone(fourVenue); measured.anchors[3].world.z += .4;
+  close(toWorld(measured, { x: 600, y: 300 }).z, 30.1);
+  close(calibration(measured).maxError, .1);
+});
+test('four-corner reverse recording preserves position, height and heading including offstage marks', () => {
+  for (const skew of [0, 2]) for (const heading of [-175, -90, 0, 25, 90, 179]) for (const x of [352.8, 1400]) {
+    const v = structuredClone(fourVenue); v.anchors[2].world.z += skew; v.anchors[3].world.z += skew;
+    const p = { x, y: 276.5, game: { height: -.7, heading } };
+    const w = toWorld(v, p), back = fromWorld(v, { position: w, yaw: w.yaw, scope });
+    close(back.x, p.x); close(back.y, p.y); close(back.game.height, p.game.height); close(back.game.heading, heading);
+  }
+});
+test('four-corner calibration rejects crossing, repeated and mismatched corners', () => {
+  const crossed = structuredClone(fourVenue); [crossed.anchors[2].world, crossed.anchors[3].world] = [crossed.anchors[3].world, crossed.anchors[2].world];
+  assert.throws(() => calibration(crossed), /Game corners/);
+  const duplicate = structuredClone(fourVenue); duplicate.anchors[3] = structuredClone(duplicate.anchors[0]);
+  assert.throws(() => calibration(duplicate), /Map corners/);
+  const mismatch = structuredClone(fourVenue); mismatch.anchors[3].world.z += 4;
+  assert.throws(() => calibration(mismatch), /do not line up/);
+});
+test('four corners require one venue and a level floor', () => {
+  const otherHouse = structuredClone(fourVenue); otherHouse.anchors[3].scope.houseId = '456';
+  assert.throws(() => calibration(otherHouse), /same venue/);
+  const platform = structuredClone(fourVenue); platform.anchors[3].world.y += 1;
+  assert.throws(() => calibration(platform), /one level floor/);
+});
+test('four-corner exports include the surveyed boundary while legacy exports remain usable', () => {
+  const pkg = compilePackage(context, fourVenue);
+  assert.equal(pkg.schemaVersion, 1);
+  assert.deepEqual(pkg.venue.boundary, fourVenue.anchors.map(a => a.world));
+  assert.deepEqual(compilePackage(context).venue.boundary, []);
+  writeFileSync(new URL('./rehearsal-four-corners.stage.json', import.meta.url), JSON.stringify(pkg, null, 2) + '\n');
 });

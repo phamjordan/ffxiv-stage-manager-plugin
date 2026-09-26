@@ -9,6 +9,18 @@ void Reject(Action action, string name) { try { action(); } catch (ArgumentExcep
 var package = WireJson.Parse<RehearsalPackage>(File.ReadAllText(args[0]));
 package.Validate();
 Check(package.Slides[1].Positions[0].Y == 4.25f, "JavaScript export deserializes with calibrated height");
+var fourCorners = WireJson.Parse<RehearsalPackage>(File.ReadAllText(Path.Combine(Path.GetDirectoryName(args[0]) ?? ".", "rehearsal-four-corners.stage.json")));
+fourCorners.Validate();
+Check(fourCorners.Venue.Boundary is { Length: 4 } boundary && boundary[2] == new WorldPosition(18, 3, 40),
+    "four surveyed stage corners survive the browser-to-plugin contract");
+Check(fourCorners.Slides[1].Positions[0] is { X: 14, Y: 4.25f, Z: 30 }, "four-corner calibration preserves resolved actor positions");
+var badBoundary = WireJson.Parse<RehearsalPackage>(WireJson.Serialize(fourCorners));
+badBoundary.Venue = badBoundary.Venue with { Boundary = [new(1, 2, 3)] };
+Reject(badBoundary.Validate, "incomplete stage boundary rejected");
+badBoundary.Venue = fourCorners.Venue with { Boundary = [new(float.NaN, 3, 20), new(10, 3, 40), new(18, 3, 40), new(18, 3, 20)] };
+Reject(badBoundary.Validate, "non-finite boundary coordinates rejected");
+badBoundary.Venue = fourCorners.Venue with { Boundary = [new(10, 3, 20), new(10, 5, 40), new(18, 3, 40), new(18, 3, 20)] };
+Reject(badBoundary.Validate, "boundary corners on different floor levels rejected");
 var engine = new RehearsalEngine(); engine.Load(package, 0);
 Check(engine.Targets(0, "alice", false).Single().SlideId == "opening", "first slide appears before playback");
 engine.Seek(5000, true, 10);

@@ -51,11 +51,21 @@ try {
   await page.locator('[data-status]').filter({hasText:'Connected'}).waitFor();
   await page.getByText('2 · Calibrate the stage',{exact:true}).click();
   const captures=page.locator('[data-capture]');
+  assert.equal(await captures.count(),4);
   await captures.nth(0).click(); await page.locator('[data-result]').nth(0).filter({hasText:'XYZ'}).waitFor();
   snapshot={...snapshot,position:{x:20,y:0,z:0}}; await captures.nth(1).click(); await page.locator('[data-result]').nth(1).filter({hasText:'XYZ'}).waitFor();
-  snapshot={...snapshot,position:{x:0,y:0,z:10}}; await captures.nth(2).click(); await page.locator('[data-result]').nth(2).filter({hasText:'XYZ'}).waitFor();
+  snapshot={...snapshot,position:{x:20,y:0,z:10}}; await captures.nth(2).click(); await page.locator('[data-result]').nth(2).filter({hasText:'XYZ'}).waitFor();
+  await page.locator('[data-save-venue]').click();
+  assert.equal(await page.evaluate(()=>window.fixture.ctx.slides[0].stage_data.game_venue),undefined,'three captures cannot save a new calibration');
+  snapshot={...snapshot,position:{x:0,y:0,z:10}}; await captures.nth(3).click(); await page.locator('[data-result]').nth(3).filter({hasText:'XYZ'}).waitFor();
   await page.locator('[data-save-venue]').click();
   await page.locator('[data-venue-status]').filter({hasText:'Using Main stage'}).waitFor();
+  assert.equal(await page.evaluate(()=>window.fixture.ctx.slides[0].stage_data.game_venue.anchors.length),4);
+  assert.equal(await page.locator('#gameVenueBoundary polygon').count(),1);
+  assert.equal(await page.locator('#gameVenueBoundary circle').count(),4);
+  await page.locator('.game-panel').evaluate(el=>{el.scrollTop=0;});
+  await mkdir(resolve(root,'artifacts'),{recursive:true});
+  await page.screenshot({path:resolve(root,'artifacts/four-corner-calibration.png'),fullPage:true});
   await page.getByText('2 · Calibrate the stage',{exact:true}).click();
   await page.locator('[data-height]').fill('1.5');await page.locator('[data-heading]').fill('90');await page.locator('[data-emote]').fill('/beesknees');
   await page.locator('[data-save-actor]').click();
@@ -72,16 +82,28 @@ try {
   await mkdir(resolve(root,'artifacts'),{recursive:true});await download.saveAs(resolve(root,'artifacts/browser-export.stage.json'));
   const exported=JSON.parse(await readFile(resolve(root,'artifacts/browser-export.stage.json')));
   assert.equal(exported.slides[0].positions[0].y,2);assert.equal(exported.cues[0].kind,'preview');
+  assert.equal(exported.venue.boundary.length,4);
   await page.getByText('1 · Connect this PC',{exact:true}).click();
   await page.screenshot({path:resolve(root,'artifacts/web-prototype.png'),fullPage:true});
   await page.locator('#next').click();await page.locator('[data-slide]').filter({hasText:'Chorus'}).waitFor();
   assert.equal(await page.locator('[data-height]').inputValue(),'0');
   assert.equal(await page.locator('[data-emote]').inputValue(),'');
+  assert.equal(await page.locator('#gameVenueBoundary polygon').getAttribute('stroke'),'#76dbe8','saved boundary survives slide changes');
+  // Importing a legacy survey must not fabricate a fourth corner or move marks.
+  const savedVenue=await page.evaluate(()=>window.fixture.ctx.slides[0].stage_data.game_venue);
+  const legacy={...savedVenue,id:'legacy',name:'Legacy stage',anchors:[savedVenue.anchors[0],savedVenue.anchors[1],savedVenue.anchors[3]]};
+  await page.getByText('2 · Calibrate the stage',{exact:true}).click();
+  await page.locator('[data-import-venue]').setInputFiles({name:'legacy.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(legacy))});
+  await page.locator('[data-calibration-note]').filter({hasText:'three-point calibration is still active'}).waitFor();
+  assert.equal(await page.locator('[data-result]').filter({hasText:'Not captured'}).count(),4);
+  await page.locator('[data-import-venue]').setInputFiles({name:'four-corners.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(savedVenue))});
+  await page.locator('[data-venue-status]').filter({hasText:'Four-corner alignment'}).waitFor();
+  assert.equal(await page.locator('[data-result]').filter({hasText:'XYZ'}).count(),4);
   // The actual application must also initialize when there is no logged-in user.
   // Only its database module is stubbed; no production endpoint is contacted.
   await page.goto('http://127.0.0.1:17846/index.html');
   await page.locator('#view-login.active').waitFor();
   assert.equal(await page.locator('.game-open').count(), 1);
   assert.deepEqual(errors,[]);
-  console.log('PASS browser: pairing, calibration, actor cue save, position capture, JSON export, slide switching, actual app startup, no page errors');
+  console.log('PASS browser: four required corners, map boundary, pairing, actor cues, reverse capture, boundary export, slide switching, legacy/new imports, app startup, no page errors');
 } finally {await browser.close();server.close();bridge.close();}

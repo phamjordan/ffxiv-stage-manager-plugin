@@ -6,7 +6,7 @@ namespace StageManager.Core;
 public record VenueScope(uint Territory, uint World, int Ward, int Plot, int Room, string HouseId, uint Instance);
 public record WorldPosition(float X, float Y, float Z);
 public record PlayerSnapshot(WorldPosition Position, float Yaw, VenueScope Scope, string Name);
-public record Venue(string Id, string Name, VenueScope Scope);
+public record Venue(string Id, string Name, VenueScope Scope, WorldPosition[]? Boundary = null);
 public record CastMember(string Id, string Name, string World, string Role);
 public record CastPosition(string CastId, float X, float Y, float Z, float Yaw, string Emote);
 public record Slide(string Id, string Label, double AtMs, CastPosition[] Positions);
@@ -37,6 +37,10 @@ public sealed class RehearsalPackage
         Require(SchemaVersion == 1, "Unsupported choreography version.");
         Require(!string.IsNullOrWhiteSpace(SongId) && SongId.Length <= 128, "Missing song ID.");
         Require(Venue?.Scope is { Territory: > 0, World: > 0 } && !string.IsNullOrEmpty(Venue.Id), "Missing venue calibration.");
+        Require(Venue.Boundary is null or { Length: 0 or 4 }, "A stage boundary needs four corners.");
+        if (Venue.Boundary is { Length: 4 } boundary)
+            Require(boundary.All(p => p is not null && Coordinate(p.X) && Coordinate(p.Y) && Coordinate(p.Z) &&
+                Math.Abs(p.Y - boundary[0].Y) <= .25f), "Invalid stage boundary coordinates or floor height.");
         Require(Cast is { Length: > 0 and <= 100 } && Cast.All(c => c is not null && !string.IsNullOrEmpty(c.Id) && !string.IsNullOrEmpty(c.Name)), "Invalid cast.");
         Require(Cast.Select(c => c.Id).Distinct().Count() == Cast.Length, "Duplicate cast IDs.");
         Require(Slides is { Length: > 0 and <= 2000 }, "Expected 1–2000 slides.");

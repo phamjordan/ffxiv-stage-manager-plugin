@@ -142,7 +142,7 @@
    renderThumbnail(stageData, castMembers, container) {
 --- /dev/null
 +++ b/stage-manager/game-model.js
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,167 @@
 +// Pure, versioned web → plugin contract. SVG y is depth; game y is height.
 +export const SCHEMA_VERSION = 1;
 +export const BRIDGE_PORT = 17845;
@@ -154,13 +154,15 @@
 +}
 +
 +export function calibration(venue) {
-+  if (!venue || venue.anchors?.length !== 3 || !venue.scope || !venue.id)
-+    throw new Error('Record three stage calibration points first.');
++  if (!venue || ![3, 4].includes(venue.anchors?.length) || !venue.scope || !venue.id)
++    throw new Error('Record all four stage corners first.');
 +  const [a, b, c] = venue.anchors;
-+  for (const p of [a, b, c]) {
++  for (const p of venue.anchors) {
 +    finite(p.u, 'Map X'); finite(p.v, 'Map Y');
 +    for (const key of ['x', 'y', 'z']) finite(p.world?.[key], `Game ${key.toUpperCase()}`);
 +  }
++  if (venue.anchors.length === 4) return fourCornerCalibration(venue);
++  // Preserve the original transform for saved three-point calibrations.
 +  const du1 = b.u - a.u, dv1 = b.v - a.v, du2 = c.u - a.u, dv2 = c.v - a.v;
 +  const det = du1 * dv2 - du2 * dv1;
 +  if (Math.abs(det) < 1 || Math.abs(det) / (Math.hypot(du1, dv1) * Math.hypot(du2, dv2)) < .05)
@@ -174,6 +176,50 @@
 +  const xu = (dx1 * dv2 - dx2 * dv1) / det, xv = (dx2 * du1 - dx1 * du2) / det;
 +  const zu = (dz1 * dv2 - dz2 * dv1) / det, zv = (dz2 * du1 - dz1 * du2) / det;
 +  return { a, xu, xv, zu, zv, det: xu * zv - xv * zu };
++}
++
++function checkCorners(points, label, minimumArea) {
++  let winding = 0;
++  for (let i = 0; i < 4; i++) {
++    const a = points[i], b = points[(i + 1) % 4], c = points[(i + 2) % 4];
++    const dx = b[0] - a[0], dy = b[1] - a[1], ex = c[0] - b[0], ey = c[1] - b[1];
++    const cross = dx * ey - dy * ex;
++    if (Math.abs(cross) < minimumArea || Math.abs(cross) / (Math.hypot(dx, dy) * Math.hypot(ex, ey)) < .05 ||
++        (winding && Math.sign(cross) !== winding))
++      throw new Error(`${label} corners must go around the stage in order, without crossing or overlapping.`);
++    winding = Math.sign(cross);
++  }
++}
++
++function fourCornerCalibration(venue) {
++  const points = venue.anchors;
++  checkCorners(points.map(p => [p.u, p.v]), 'Map', 1);
++  checkCorners(points.map(p => [p.world.x, p.world.z]), 'Game', .01);
++  if (points.some(p => p.scope && scopeKey(p.scope) !== scopeKey(venue.scope)))
++    throw new Error('All four corners must be captured in the same venue.');
++  if (points.some(p => Math.abs(p.world.y - points[0].world.y) > .25))
++    throw new Error('Capture all four corners on one level floor; use actor height offsets for platforms.');
++  // Fit one affine transform to all four observations. Centering avoids losing
++  // precision at large world coordinates and keeps the stage's scale uniform.
++  const mean = fn => points.reduce((sum, p) => sum + fn(p), 0) / 4;
++  const a = { u: mean(p => p.u), v: mean(p => p.v), world: { x: mean(p => p.world.x), y: points[0].world.y, z: mean(p => p.world.z) } };
++  let uu = 0, uv = 0, vv = 0, ux = 0, vx = 0, uz = 0, vz = 0;
++  for (const p of points) {
++    const u = p.u - a.u, v = p.v - a.v, x = p.world.x - a.world.x, z = p.world.z - a.world.z;
++    uu += u * u; uv += u * v; vv += v * v;
++    ux += u * x; vx += v * x; uz += u * z; vz += v * z;
++  }
++  const normalDet = uu * vv - uv * uv;
++  if (normalDet <= 0 || normalDet / (uu + vv) ** 2 < 1e-10) throw new Error('Spread the map corners farther apart.');
++  const xu = (ux * vv - vx * uv) / normalDet, xv = (vx * uu - ux * uv) / normalDet;
++  const zu = (uz * vv - vz * uv) / normalDet, zv = (vz * uu - uz * uv) / normalDet;
++  const det = xu * zv - xv * zu;
++  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) throw new Error('Game corners do not define a usable stage.');
++  const errors = points.map(p => Math.hypot(a.world.x + xu * (p.u - a.u) + xv * (p.v - a.v) - p.world.x,
++    a.world.z + zu * (p.u - a.u) + zv * (p.v - a.v) - p.world.z));
++  const maxError = Math.max(...errors);
++  if (maxError > .35) throw new Error(`The four corners do not line up (${maxError.toFixed(2)} units off). Check corresponding map/game corners and capture them again.`);
++  return { a, xu, xv, zu, zv, det, maxError };
 +}
 +
 +export function toWorld(venue, position) {
@@ -253,7 +299,9 @@
 +  }
 +  return { schemaVersion: SCHEMA_VERSION, songId: context.song.id, title: context.song.title,
 +    durationMs: Math.max(context.song.duration_ms || 0, ...slides.map(s => s.atMs), ...cues.map(c => c.atMs)),
-+    venue: { id: venue.id, name: venue.name || 'Stage', scope: venue.scope }, cast, slides, cues: cues.sort((a,b) => a.atMs - b.atMs), warnings };
++    venue: { id: venue.id, name: venue.name || 'Stage', scope: venue.scope,
++      boundary: venue.anchors.length === 4 ? venue.anchors.map(p => ({ x: p.world.x, y: venue.anchors[0].world.y, z: p.world.z })) : [] },
++    cast, slides, cues: cues.sort((a,b) => a.atMs - b.atMs), warnings };
 +}
 +
 +export function normalizeEmote(value) {
@@ -264,8 +312,11 @@
 +}
 --- /dev/null
 +++ b/stage-manager/game-bridge.js
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,256 @@
 +import { BRIDGE_PORT, calibration, compilePackage, findVenue, fromWorld, normalizeEmote, scopeKey } from './game-model.js';
++
++const CORNERS = ['Front-left', 'Front-right', 'Back-right', 'Back-left'];
++const freshCorners = () => [{u:200,v:550},{u:1000,v:550},{u:1000,v:150},{u:200,v:150}];
 +
 +export function initGameBridge({ getContext, saveCurrentStage }) {
 +  const css = document.createElement('link');
@@ -287,8 +338,16 @@
 +      <p class="game-status" data-status role="status">Disconnected</p>
 +      <p>Keep this browser open during rehearsal. Music and spoken reminders continue here.</p>
 +    </details>
-+    <details data-editor><summary>2 · Calibrate the stage</summary>
-+      <p>Use three widely separated spots on the same floor. Pick each spot on the map, stand there in-game, then capture it. Map X/Y are canvas coordinates.</p>
++    <details data-editor data-calibration><summary>2 · Calibrate the stage</summary>
++      <p>Capture the four stage corners on the same floor, going around the rectangle in the order below. Left and right refer to this map, with the audience at the bottom.</p>
++      <div class="game-corner-guide" aria-label="Corner order: 1 front-left, 2 front-right, 3 back-right, 4 back-left; audience below">
++        <span>4 · Back-left</span><span>3 · Back-right</span>
++        <span class="game-corner-stage">STAGE</span>
++        <span>1 · Front-left</span><span>2 · Front-right</span>
++        <small>AUDIENCE</small>
++      </div>
++      <p>For each corner, pick its map location, stand at the matching corner in FFXIV, then capture it.</p>
++      <p data-calibration-note></p>
 +      <label>Venue name <input data-venue-name value="Main stage" maxlength="80"></label>
 +      <div data-anchors></div>
 +      <button data-save-venue>Save calibration to this song</button>
@@ -317,7 +376,11 @@
 +  const $ = key => panel.querySelector(`[data-${key}]`);
 +  $('origin').textContent = location.origin;
 +  let token = '', connected = false, sending = false, lastPackage = '', sequence = 0, sessionId = '';
-+  let anchors = [], pickIndex = null, lastSelection = '', lastSong = '', anchorSong = '';
++  let anchors = [], pickIndex = null, lastSelection = '', lastSong = '', anchorSong = '', boundaryKey = '';
++  const stageSvg = document.getElementById('stageSvg');
++  const boundaryLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
++  boundaryLayer.id = 'gameVenueBoundary'; boundaryLayer.setAttribute('pointer-events', 'none');
++  stageSvg.insertBefore(boundaryLayer, stageSvg.querySelector('#stageCast'));
 +  const status = text => { $('status').textContent = text; };
 +  const run = fn => async () => { try { await fn(); } catch (e) { status(e.message); } };
 +  const current = () => {
@@ -347,7 +410,8 @@
 +  };
 +
 +  button.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden) refresh(true); };
-+  $('close').onclick = () => { panel.hidden = true; pickIndex = null; };
++  $('close').onclick = () => { panel.hidden = true; pickIndex = null; drawBoundary(getContext()); };
++  $('calibration').addEventListener('toggle', () => drawBoundary(getContext()));
 +  $('connect').onclick = run(async () => {
 +    token = $('token').value.trim(); await request('snapshot', {});
 +    connected = true; lastPackage = ''; sequence = 0; sessionId = crypto.randomUUID(); status('Connected. Calibrate the stage to send choreography.');
@@ -357,25 +421,48 @@
 +
 +  function drawAnchors() {
 +    $('anchors').replaceChildren();
-+    for (let i = 0; i < 3; i++) {
++    for (let i = 0; i < 4; i++) {
 +      const row = document.createElement('div'); row.className = 'game-anchor';
-+      row.innerHTML = `<strong>Point ${i + 1}</strong><div class="game-row"><label>Map X<input type="number" data-u></label><label>Map Y<input type="number" data-v></label></div><div class="game-row"><button data-pick>Pick on map</button><button data-capture>Capture in-game</button></div><small data-result></small>`;
++      row.innerHTML = `<strong>${i + 1} · ${CORNERS[i]}</strong><div class="game-row"><label>Map X<input type="number" data-u></label><label>Map Y<input type="number" data-v></label></div><div class="game-row"><button data-pick>Pick on map</button><button data-capture>Capture in-game</button></div><small data-result></small>`;
 +      const a = anchors[i];
 +      row.querySelector('[data-u]').value = a.u; row.querySelector('[data-v]').value = a.v;
-+      row.querySelector('[data-u]').oninput = e => { a.u = Number(e.target.value); };
-+      row.querySelector('[data-v]').oninput = e => { a.v = Number(e.target.value); };
++      row.querySelector('[data-u]').oninput = e => { a.u = Number(e.target.value); drawBoundary(getContext()); };
++      row.querySelector('[data-v]').oninput = e => { a.v = Number(e.target.value); drawBoundary(getContext()); };
 +      row.querySelector('[data-result]').textContent = a.world ? `XYZ ${a.world.x.toFixed(2)}, ${a.world.y.toFixed(2)}, ${a.world.z.toFixed(2)}` : 'Not captured';
-+      row.querySelector('[data-pick]').onclick = () => { pickIndex = i; status(`Click point ${i + 1} on the stage map.`); };
++      row.querySelector('[data-pick]').onclick = () => { pickIndex = i; status(`Click corner ${i + 1} (${CORNERS[i]}) on the stage map.`); };
 +      row.querySelector('[data-capture]').onclick = run(async () => {
 +        const ctx = edit(), songId = ctx.song.id, p = await snapshot();
 +        if (current().song.id !== songId) throw new Error('Song changed; capture again.');
-+        a.world = p.position; a.scope = p.scope; drawAnchors(); status(`Captured point ${i + 1}.`);
++        a.world = p.position; a.scope = p.scope; drawAnchors(); status(`Captured corner ${i + 1} (${CORNERS[i]}).`);
 +      });
 +      $('anchors').appendChild(row);
 +    }
++    drawBoundary(getContext());
 +  }
-+  document.getElementById('stageSvg').addEventListener('pointerdown', e => {
++  function drawBoundary(ctx) {
++    const draft = !panel.hidden && $('calibration').open && ctx.canEdit && anchorSong === ctx.song?.id;
++    const points = draft ? anchors : findVenue(ctx.slides)?.anchors;
++    const usable = ctx.active && points?.length === 4 && points.every(p => Number.isFinite(p.u) && Number.isFinite(p.v));
++    const key = usable ? JSON.stringify([draft, points.map(p => [p.u,p.v,Boolean(p.world)])]) : '';
++    if (key === boundaryKey) return;
++    boundaryKey = key; boundaryLayer.replaceChildren();
++    if (!usable) return;
++    const add = (tag, attributes, text) => {
++      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
++      for (const [name, value] of Object.entries(attributes)) el.setAttribute(name, value);
++      if (text) el.textContent = text;
++      boundaryLayer.appendChild(el);
++    };
++    const color = draft ? '#f4c75a' : '#76dbe8';
++    add('polygon', { points: points.map(p => `${p.u},${p.v}`).join(' '), fill: color, 'fill-opacity': '.04', stroke: color, 'stroke-width': '3', 'stroke-dasharray': draft ? '12 8' : 'none' });
++    points.forEach((p, i) => {
++      add('circle', {cx:p.u, cy:p.v, r:12, fill:p.world ? color : '#28231b', stroke:color, 'stroke-width':2});
++      add('text', {x:p.u, y:p.v+5, 'text-anchor':'middle', 'font-size':15, 'font-weight':700, fill:p.world ? '#15120e' : color}, String(i+1));
++    });
++  }
++  stageSvg.addEventListener('pointerdown', e => {
 +    if (pickIndex === null) return;
++    if (!getContext().canEdit) { pickIndex = null; return; }
 +    e.preventDefault(); e.stopImmediatePropagation();
 +    const svg = e.currentTarget, point = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
 +    anchors[pickIndex].u = Math.round(point.x); anchors[pickIndex].v = Math.round(point.y);
@@ -383,7 +470,7 @@
 +  }, true);
 +  $('save-venue').onclick = run(() => {
 +    const ctx = edit();
-+    if (anchors.some(a => !a.world || !a.scope)) throw new Error('Capture all three points.');
++    if (anchors.length !== 4 || anchors.some(a => !a.world || !a.scope)) throw new Error('Capture all four corners.');
 +    if (anchors.some(a => scopeKey(a.scope) !== scopeKey(anchors[0].scope))) throw new Error('All points must be in the same venue.');
 +    if (anchors.some(a => Math.abs(a.world.y - anchors[0].world.y) > .25)) throw new Error('Calibrate on one level floor; use actor height offsets for raised platforms.');
 +    const venue = { id: crypto.randomUUID(), revision: Date.now(), name: $('venue-name').value || 'Stage', scope: anchors[0].scope, anchors: structuredClone(anchors) };
@@ -439,15 +526,20 @@
 +      lastSelection = selection; refreshActor();
 +    }
 +    const venue = findVenue(ctx.slides);
-+    $('venue-status').textContent = venue ? `Using ${venue.name}. Floor Y = ${venue.anchors[0].world.y.toFixed(2)}.` : 'No calibration yet.';
++    $('calibration-note').textContent = venue?.anchors?.length === 3 ? 'Your saved three-point calibration is still active. Capture and save all four corners to replace it and show the boundary.' : 'The numbered outline previews your stage boundary. Save after capturing all four corners.';
++    try {
++      const fit = venue ? calibration(venue) : null;
++      $('venue-status').textContent = venue ? `Using ${venue.name}. Floor Y = ${venue.anchors[0].world.y.toFixed(2)}.${fit.maxError !== undefined ? ` Four-corner alignment: ${fit.maxError.toFixed(2)} units maximum offset.` : ''}` : 'No calibration yet.';
++    } catch (e) { $('venue-status').textContent = e.message; }
 +    if (anchorSong !== ctx.song?.id) {
-+      anchors = venue ? structuredClone(venue.anchors) : [{u:200,v:550},{u:1000,v:550},{u:200,v:150}];
++      anchors = venue?.anchors?.length === 4 ? structuredClone(venue.anchors) : freshCorners();
 +      $('venue-name').value = venue?.name || 'Main stage'; anchorSong = ctx.song?.id; drawAnchors();
 +    }
 +  }
 +
 +  async function tick() {
 +    if (!panel.hidden) refresh();
++    drawBoundary(getContext());
 +    if (!connected || sending) return;
 +    sending = true;
 +    try {
@@ -479,7 +571,7 @@
 +}
 --- /dev/null
 +++ b/stage-manager/game-bridge.css
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,22 @@
 +.game-open, .game-panel button, .game-file { background: var(--surface-2, #2e2a22); color: var(--text, #ddd0b5); border: 1px solid var(--primary-dim, #a8862f); border-radius: 6px; padding: 7px 10px; cursor: pointer; font: inherit; }
 +.game-open { font-size: 12px; margin-top: 4px; align-self: flex-start; }
 +.game-panel { position: fixed; right: 12px; top: 64px; bottom: 80px; width: min(360px, calc(100vw - 24px)); overflow-y: auto; padding: 18px; box-sizing: border-box; z-index: 1500; background: var(--surface, #22201a); color: var(--text, #ddd0b5); border: 1px solid var(--primary-dim, #a8862f); border-radius: 12px; box-shadow: 0 12px 50px #0009; font-size: 13px; line-height: 1.5; }
@@ -498,3 +590,7 @@
 +.game-panel code { color: var(--primary, #c9a23e); overflow-wrap: anywhere; user-select: all; }
 +.game-panel .game-status { color: var(--primary, #c9a23e); }
 +.game-panel pre { white-space: pre-wrap; color: #ffd89e; }
++.game-corner-guide { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; background: var(--bg, #15120e); border: 1px solid var(--border, #4a3f2e); border-radius: 6px; font-size: 12px; }
++.game-corner-guide > span:nth-child(2), .game-corner-guide > span:nth-child(5) { text-align: right; }
++.game-corner-stage { grid-column: 1 / -1; text-align: center; padding: 12px; color: var(--primary, #c9a23e); border: 1px dashed currentColor; }
++.game-corner-guide small { grid-column: 1 / -1; text-align: center; color: var(--text-muted, #998a70); }

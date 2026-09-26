@@ -16,3 +16,7 @@
 .game-panel code { color: var(--primary, #c9a23e); overflow-wrap: anywhere; user-select: all; }
 .game-panel .game-status { color: var(--primary, #c9a23e); }
 .game-panel pre { white-space: pre-wrap; color: #ffd89e; }
+.game-corner-guide { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; background: var(--bg, #15120e); border: 1px solid var(--border, #4a3f2e); border-radius: 6px; font-size: 12px; }
+.game-corner-guide > span:nth-child(2), .game-corner-guide > span:nth-child(5) { text-align: right; }
+.game-corner-stage { grid-column: 1 / -1; text-align: center; padding: 12px; color: var(--primary, #c9a23e); border: 1px dashed currentColor; }
+.game-corner-guide small { grid-column: 1 / -1; text-align: center; color: var(--text-muted, #998a70); }

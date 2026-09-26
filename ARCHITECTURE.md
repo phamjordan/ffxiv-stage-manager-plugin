@@ -26,11 +26,18 @@ preserves metadata; deleting a slide carries the current calibration onto a
 remaining slide. Deleting every slide deletes its calibration too, so export
 one for reuse. These fields use the existing JSONB column and RLS.
 
-Three non-collinear points define an affine transform from map `(u,v)` to
-game `(X,Z)`. The inverse records real marks back into the editor. Facing is
-transformed as a direction vector. Height is independent: first anchor Y
-plus actor height. Both map and world triangles are checked for degeneracy.
-The UI asks that all anchors be on the same floor.
+Four corners define an affine transform from map `(u,v)` to game `(X,Z)`,
+fitted by centered least squares so every capture contributes. Map and game
+corners must form convex, non-crossing boundaries, share a venue and level
+floor, and have a maximum fit residual of 0.35 world units. Saved three-point
+calibrations use their original affine transform unchanged. The inverse
+records real marks back into the editor. Facing is transformed as a direction
+vector. Height is independent: first anchor Y plus actor height.
+
+The optional schema-1 `venue.boundary` contains four captured XYZ corners,
+with Y set to the first corner floor height. Old calibrations omit the outline.
+The plugin validates finite coordinates, count, and floor height. The browser
+map uses a separate SVG layer so the outline never becomes a stage shape.
 
 The plugin consumes **resolved world positions**, not an independent second
 calibration implementation. This avoids JS/C# disagreements about the transform.
@@ -169,3 +176,26 @@ core/bridge checks pass. Browser regression covers pairing, calibration, actor
 cue editing, position capture, backup export, slide switching and app startup.
 The native idle transition, live emote observation, and ImGui layout still
 require validation in Windows FFXIV.
+
+## Four corners, boundary, and guidance (0.1.4)
+
+Four ordered captures now drive the browser calibration and its numbered SVG
+boundary. The old three-anchor path retains its exact mapping. Validation
+rejects crossed/degenerate corners, mixed venues, uneven floors, and a fit
+residual above 0.35 units. The optional boundary travels with the existing
+resolved-position protocol; no database migration is required.
+
+The plugin draws a cyan outline from the four captured world corners, plus
+a direction line from the selected local performer's current position to
+their displayed target. Manual/lyric preview and return-to-current behavior
+therefore apply to the line automatically. It includes an arrow, horizontal
+distance, and height difference, and hides inside the readiness tolerance.
+Both overlays are optional, work without native ghost models, and share the
+venue, connection, and game-state rendering gates. Segmented projection
+allows partially off-screen edges to remain visible.
+
+Verification: 13 Node tests and 70 C# core/bridge checks passed. Headless Chrome
+verified four required captures, saved/draft map outlines, actor authoring,
+reverse capture, boundary export, slide switching, legacy and new calibration
+imports, and app startup without page errors. Release compiles against stable
+API 15; Windows FFXIV visual confirmation of the new overlays remains pending.

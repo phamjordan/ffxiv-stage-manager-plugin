@@ -9,13 +9,15 @@ function finite(value, label, min = -10000, max = 10000) {
 }
 
 export function calibration(venue) {
-  if (!venue || venue.anchors?.length !== 3 || !venue.scope || !venue.id)
-    throw new Error('Record three stage calibration points first.');
+  if (!venue || ![3, 4].includes(venue.anchors?.length) || !venue.scope || !venue.id)
+    throw new Error('Record all four stage corners first.');
   const [a, b, c] = venue.anchors;
-  for (const p of [a, b, c]) {
+  for (const p of venue.anchors) {
     finite(p.u, 'Map X'); finite(p.v, 'Map Y');
     for (const key of ['x', 'y', 'z']) finite(p.world?.[key], `Game ${key.toUpperCase()}`);
   }
+  if (venue.anchors.length === 4) return fourCornerCalibration(venue);
+  // Preserve the original transform for saved three-point calibrations.
   const du1 = b.u - a.u, dv1 = b.v - a.v, du2 = c.u - a.u, dv2 = c.v - a.v;
   const det = du1 * dv2 - du2 * dv1;
   if (Math.abs(det) < 1 || Math.abs(det) / (Math.hypot(du1, dv1) * Math.hypot(du2, dv2)) < .05)
@@ -29,6 +31,50 @@ export function calibration(venue) {
   const xu = (dx1 * dv2 - dx2 * dv1) / det, xv = (dx2 * du1 - dx1 * du2) / det;
   const zu = (dz1 * dv2 - dz2 * dv1) / det, zv = (dz2 * du1 - dz1 * du2) / det;
   return { a, xu, xv, zu, zv, det: xu * zv - xv * zu };
+}
+
+function checkCorners(points, label, minimumArea) {
+  let winding = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = points[i], b = points[(i + 1) % 4], c = points[(i + 2) % 4];
+    const dx = b[0] - a[0], dy = b[1] - a[1], ex = c[0] - b[0], ey = c[1] - b[1];
+    const cross = dx * ey - dy * ex;
+    if (Math.abs(cross) < minimumArea || Math.abs(cross) / (Math.hypot(dx, dy) * Math.hypot(ex, ey)) < .05 ||
+        (winding && Math.sign(cross) !== winding))
+      throw new Error(`${label} corners must go around the stage in order, without crossing or overlapping.`);
+    winding = Math.sign(cross);
+  }
+}
+
+function fourCornerCalibration(venue) {
+  const points = venue.anchors;
+  checkCorners(points.map(p => [p.u, p.v]), 'Map', 1);
+  checkCorners(points.map(p => [p.world.x, p.world.z]), 'Game', .01);
+  if (points.some(p => p.scope && scopeKey(p.scope) !== scopeKey(venue.scope)))
+    throw new Error('All four corners must be captured in the same venue.');
+  if (points.some(p => Math.abs(p.world.y - points[0].world.y) > .25))
+    throw new Error('Capture all four corners on one level floor; use actor height offsets for platforms.');
+  // Fit one affine transform to all four observations. Centering avoids losing
+  // precision at large world coordinates and keeps the stage's scale uniform.
+  const mean = fn => points.reduce((sum, p) => sum + fn(p), 0) / 4;
+  const a = { u: mean(p => p.u), v: mean(p => p.v), world: { x: mean(p => p.world.x), y: points[0].world.y, z: mean(p => p.world.z) } };
+  let uu = 0, uv = 0, vv = 0, ux = 0, vx = 0, uz = 0, vz = 0;
+  for (const p of points) {
+    const u = p.u - a.u, v = p.v - a.v, x = p.world.x - a.world.x, z = p.world.z - a.world.z;
+    uu += u * u; uv += u * v; vv += v * v;
+    ux += u * x; vx += v * x; uz += u * z; vz += v * z;
+  }
+  const normalDet = uu * vv - uv * uv;
+  if (normalDet <= 0 || normalDet / (uu + vv) ** 2 < 1e-10) throw new Error('Spread the map corners farther apart.');
+  const xu = (ux * vv - vx * uv) / normalDet, xv = (vx * uu - ux * uv) / normalDet;
+  const zu = (uz * vv - vz * uv) / normalDet, zv = (vz * uu - uz * uv) / normalDet;
+  const det = xu * zv - xv * zu;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12) throw new Error('Game corners do not define a usable stage.');
+  const errors = points.map(p => Math.hypot(a.world.x + xu * (p.u - a.u) + xv * (p.v - a.v) - p.world.x,
+    a.world.z + zu * (p.u - a.u) + zv * (p.v - a.v) - p.world.z));
+  const maxError = Math.max(...errors);
+  if (maxError > .35) throw new Error(`The four corners do not line up (${maxError.toFixed(2)} units off). Check corresponding map/game corners and capture them again.`);
+  return { a, xu, xv, zu, zv, det, maxError };
 }
 
 export function toWorld(venue, position) {
@@ -108,7 +154,9 @@ export function compilePackage(context, venue = findVenue(context.slides)) {
   }
   return { schemaVersion: SCHEMA_VERSION, songId: context.song.id, title: context.song.title,
     durationMs: Math.max(context.song.duration_ms || 0, ...slides.map(s => s.atMs), ...cues.map(c => c.atMs)),
-    venue: { id: venue.id, name: venue.name || 'Stage', scope: venue.scope }, cast, slides, cues: cues.sort((a,b) => a.atMs - b.atMs), warnings };
+    venue: { id: venue.id, name: venue.name || 'Stage', scope: venue.scope,
+      boundary: venue.anchors.length === 4 ? venue.anchors.map(p => ({ x: p.world.x, y: venue.anchors[0].world.y, z: p.world.z })) : [] },
+    cast, slides, cues: cues.sort((a,b) => a.atMs - b.atMs), warnings };
 }
 
 export function normalizeEmote(value) {

@@ -23,6 +23,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool GhostModels;
     public bool CueSound;
     public bool ShowCountdown = true;
+    public bool ShowBoundary = true;
+    public bool ShowGuidance = true;
     public float Alpha = .35f;
 }
 
@@ -299,6 +301,10 @@ public sealed class Plugin : IAsyncDalamudPlugin
         if (ImGui.SliderFloat("Ghost opacity", ref config.Alpha, .1f, .8f, "%.2f")) Save();
         ImGui.EndDisabled();
         if (ImGui.Checkbox("Show my emote countdown HUD", ref config.ShowCountdown)) Save();
+        if (ImGui.Checkbox("Show stage boundary", ref config.ShowBoundary)) Save();
+        if (ImGui.Checkbox("Show direction line to my mark", ref config.ShowGuidance)) Save();
+        ImGui.TextWrapped("The direction line follows the displayed mark. Preview next position points it to your next mark; Return to current position brings it back.");
+        if (engine.Package?.Venue.Boundary is not { Length: 4 }) ImGui.TextWrapped("Capture four stage corners in the website to display the boundary.");
         ImGui.TextWrapped("Countdowns also appear above each cast marker. Ghosts stand idle while the browser is paused or stopped.");
         ImGui.Separator(); ImGui.TextUnformatted("Audio");
         if (ImGui.Checkbox("Play in-game cue chime", ref config.CueSound)) Save();
@@ -356,6 +362,22 @@ public sealed class Plugin : IAsyncDalamudPlugin
         var snapshot = player;
         if (!armed || snapshot is null) return;
         var draw = ImGui.GetBackgroundDrawList();
+        if (engine.Active && !engine.IsStale(clock.Elapsed.TotalSeconds))
+        {
+            if (config.ShowBoundary && engine.Package?.Venue.Boundary is { Length: 4 } corners)
+            {
+                var color = ImGui.ColorConvertFloat4ToU32(new Vector4(.4f, .85f, .95f, .8f));
+                for (var i = 0; i < corners.Length; i++)
+                {
+                    var start = ToVector(corners[i]) + new Vector3(0, .05f, 0);
+                    var end = ToVector(corners[(i + 1) % corners.Length]) + new Vector3(0, .05f, 0);
+                    DrawWorldLine(draw, start, end, color, 2);
+                    DrawWorldLabel(draw, start + new Vector3(0, .2f, 0), $"Corner {i + 1}", color);
+                }
+            }
+            if (config.ShowGuidance && targets.FirstOrDefault(t => t.Cast.Id == config.CastId) is { } ownTarget)
+                DrawGuidance(draw, snapshot, ownTarget);
+        }
         foreach (var target in targets)
         {
             var pos = Position(target);
@@ -377,6 +399,53 @@ public sealed class Plugin : IAsyncDalamudPlugin
             draw.AddRectFilled(screen - new Vector2(5), screen + size + new Vector2(5), 0xBF16101C, 4);
             draw.AddText(screen, color, text);
         }
+    }
+
+    private void DrawWorldLine(ImDrawListPtr draw, Vector3 start, Vector3 end, uint color, float width)
+    {
+        // Short segments allow partially off-screen edges to remain visible.
+        var count = Math.Clamp((int)MathF.Ceiling(Vector3.Distance(start, end)), 1, 128);
+        for (var i = 0; i < count; i++)
+        {
+            var a = Vector3.Lerp(start, end, (float)i / count);
+            var b = Vector3.Lerp(start, end, (float)(i + 1) / count);
+            if (player is null || Vector3.DistanceSquared(a, ToVector(player.Position)) > 100 * 100) continue;
+            if (!gameGui.WorldToScreen(a, out var p1) || !gameGui.WorldToScreen(b, out var p2)) continue;
+            draw.AddLine(p1, p2, 0xA0101010, width + 2);
+            draw.AddLine(p1, p2, color, width);
+        }
+    }
+
+    private void DrawWorldLabel(ImDrawListPtr draw, Vector3 position, string text, uint color)
+    {
+        if (player is null || Vector3.DistanceSquared(position, ToVector(player.Position)) > 100 * 100 ||
+            !gameGui.WorldToScreen(position, out var screen)) return;
+        var size = ImGui.CalcTextSize(text); screen.X -= size.X / 2;
+        draw.AddRectFilled(screen - new Vector2(4), screen + size + new Vector2(4), 0xBF16101C, 4);
+        draw.AddText(screen, color, text);
+    }
+
+    private void DrawGuidance(ImDrawListPtr draw, PlayerSnapshot snapshot, RenderTarget target)
+    {
+        var from = ToVector(snapshot.Position) + new Vector3(0, .08f, 0);
+        var to = Position(target) + new Vector3(0, .08f, 0);
+        var delta = to - from;
+        var horizontal = new Vector3(delta.X, 0, delta.Z);
+        var distance = horizontal.Length();
+        if (distance <= .5f && Math.Abs(delta.Y) <= .35f) return;
+        var color = ImGui.ColorConvertFloat4ToU32(target.Preview ? new Vector4(1, .8f, .35f, .95f) : new Vector4(.5f, .85f, 1, .95f));
+        DrawWorldLine(draw, from, to, color, 3);
+        if (distance > .05f)
+        {
+            var direction = horizontal / distance;
+            var side = new Vector3(-direction.Z, 0, direction.X);
+            var arrowSize = Math.Min(.7f, distance / 3);
+            DrawWorldLine(draw, to, to - direction * arrowSize + side * arrowSize * .5f, color, 3);
+            DrawWorldLine(draw, to, to - direction * arrowSize - side * arrowSize * .5f, color, 3);
+        }
+        var label = $"{(target.Preview ? "NEXT" : "CURRENT")} · {distance:F1} units";
+        if (Math.Abs(delta.Y) > .35f) label += $" · height {delta.Y:+0.0;-0.0;0.0}";
+        DrawWorldLabel(draw, Vector3.Lerp(from, to, .5f) + new Vector3(0, .35f, 0), label, color);
     }
 
     private void Save() => pi.SavePluginConfig(config);

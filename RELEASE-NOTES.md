@@ -1,20 +1,23 @@
-# Stage Manager 0.1.3 — rehearsal feedback and controls
+# Stage Manager 0.1.4 — stage boundaries and direction guidance
 
-- Rings now check each assigned performer: red off mark, yellow on mark with
-  an emote pending, green ready, and gray when that performer is not nearby.
-- An observed matching emote completes the current cue. Short emotes stay
-  complete while the performer remains on the mark; new cues and replay reset it.
-- Ghosts return to idle when browser playback pauses or stops, and resume
-  their current action when playback resumes.
-- Countdown labels show upcoming emotes at the next position and later in the
-  same slide. Your selected role also has a visible countdown HUD.
-- Add Return to current position (also /stage current) to cancel a preview
-  until the next slide without interrupting playback.
-- Organize the window into Rehearsal, Connection, and Display & sound tabs.
-- Remove choreography JSON loading and independent playback controls; the
-  plugin follows the browser bridge.
+- Calibrate with all four stage corners: front-left, front-right, back-right,
+  back-left, following the map with the audience at the bottom.
+- See a numbered stage outline on the web map and a cyan boundary in-game.
+- Follow a line from your moving character to your own displayed mark, with
+  an arrow, remaining horizontal distance, and height difference when needed.
+- The line is blue for the current mark and gold for the next-position preview.
+  /nextpos and Preview next position switch it to the next mark; Return to
+  current position switches it back. It disappears when you reach your mark.
+- Toggle the stage boundary and direction line in Display & sound. Both start
+  enabled and work with ghost models disabled.
+- Existing three-point calibrations retain their mapping. Capture and save
+  four corners to enable the boundary. All four captures contribute to the new
+  mapping; crossed corners and mismatched captures are rejected.
 
-Update through /xlplugins, enable the bridge in the Connection tab, reconnect
-using the new pairing token, and arm the venue. Existing calibration works.
-Game-rendered idle transitions and live performer emote detection require
-in-game confirmation on Windows; automated checks cover cue/readiness logic.
+Update through /xlplugins, refresh the Stage Manager website, reconnect the
+bridge with its new pairing token, and arm the venue. Capture all four corners
+and save the calibration to use the outline. The website URL stays the same.
+
+The release compiles against stable Dalamud API 15. Calibration, protocol, and
+browser checks pass; the new in-game overlays need visual confirmation in
+FFXIV on Windows. Guidance is a straight line, not obstacle-aware pathfinding.

@@ -1,6 +1,6 @@
 # FFXIV Stage Manager — first prototype
 
-Version **0.1.3**, built for **Windows x64, .NET 10, Dalamud API 15**.
+Version **0.1.4**, built for **Windows x64, .NET 10, Dalamud API 15**.
 Created on 2026-09-25. The plugin compiles and its calibration, cue engine,
 browser integration, and loopback protocol have been tested. Native ghost
 behavior and emote detection still need verification in FFXIV on Windows.
@@ -9,8 +9,11 @@ behavior and emote detection still need verification in FFXIV on Windows.
 
 - A performer sees their own local ghost and position marker. A director can
   enable a view of up to 32 cast members.
-- Three captured game locations calibrate the existing flat stage editor.
+- Four captured stage corners calibrate the existing flat stage editor and
+  outline the stage in-game. Saved three-point calibrations remain supported.
   Each actor position also stores a height offset, facing, and optional emote.
+- A direction line runs from your moving character to your displayed mark,
+  with an arrow, remaining horizontal distance, and any height difference.
 - “Record my game position” moves the selected actor's map token to the
   performer's actual game X/Z and records height and facing.
 - A timed `/nextpos` lyric previews the next slide's position. The ghost stays
@@ -70,10 +73,11 @@ Future versions published to this feed appear in Dalamud's plugin updater.
 ## Calibrate a venue once
 
 1. Open a song containing at least one slide, with director editing rights.
-2. Choose three widely separated, recognizable points on the **same level
-   floor**, forming a triangle. For example: downstage left, downstage right,
-   and upstage left. Avoid three points along a straight line.
-3. For each point, click **Pick on map**, click its location on your diagram,
+2. Capture four corners on the **same level floor**, going around the stage:
+   **1 front-left → 2 front-right → 3 back-right → 4 back-left**. Left/right
+   follow the map, with the audience at the bottom. The numbered diagram and
+   stage outline show this order.
+3. For each corner, click **Pick on map**, click its location on your diagram,
    stand in the corresponding place in FFXIV, and click **Capture in-game**.
 4. Click **Save calibration to this song**. It uses the existing slide
    `stage_data` storage and autosave; no database migration is required.
@@ -81,6 +85,11 @@ Future versions published to this feed appear in Dalamud's plugin updater.
    compare a marker with a known floor spot. Then enable ghost models.
 6. Export the calibration and import it into other songs staged in the
    same venue. Recalibrate after changing the stage layout or map artwork.
+
+All four captures contribute to the mapping. Crossing corners, mixed venues,
+uneven floors, and a poor match between map and game corners are rejected.
+Existing three-point calibrations keep their original mapping; capture and
+save all four corners to replace one and enable the boundary.
 
 The transform maps the editor's SVG X/Y into game X/Z. Game **Y is height**.
 The first calibration point defines floor height. A platform 1.2 game units
@@ -129,11 +138,20 @@ visuals. A slide without an actor's position means that actor is offstage.
 - **Rehearsal:** choose your role, enable director view, arm/hide the venue,
   preview the next position, return to the current position, and see readiness.
 - **Connection:** set the browser origin, enable the bridge, and copy its token.
-- **Display & sound:** ghost visibility/opacity, your countdown HUD, and chime.
+- **Display & sound:** ghost visibility/opacity, stage boundary, direction
+  line, your countdown HUD, and chime. Boundary and direction line start enabled.
 
 Return to current position cancels both manual and automatic `/nextpos`
 preview until the current slide ends. It does not seek or restart the music.
 You can preview again immediately using the adjacent button.
+
+The cyan boundary joins your four captured corners. The direction line
+starts at your current location and follows your own displayed ghost/mark.
+It is blue for the current mark and gold while previewing the next mark;
+Return to current position switches it back. The line shortens as you move
+and disappears when you are within the mark tolerance. It also works with
+ghost models disabled and in director view. It shows a direct route, so
+performers still navigate around furniture themselves.
 
 Your selected role uses your local player. Other cast rings use the real nearby
 player matching that cast member's name and home world. Standing at someone
@@ -165,7 +183,7 @@ at the top of the screen shows your selected cast member's upcoming/due emote.
   interactions, multi-part emotes, and exact animation phase after a seek
   are not guaranteed. Seeking reconstructs the applicable action and can
   restart its animation; it does not scrub the animation to music time.
-- Floor rings and text are projected overlays, so they can show through
+- Floor rings, the boundary, direction line, and text are projected overlays, so they can show through
   scenery. The ghost itself is a game-rendered actor. Custom static VFX and
   pathfinding are not included. Distance is straight-line horizontal distance.
 - The plugin only renders within 100 world units of the local player.
