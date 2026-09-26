@@ -1,0 +1,30 @@
+[
+  {
+    "Author": "Stage Manager",
+    "Name": "Stage Manager",
+    "InternalName": "StageManager",
+    "AssemblyVersion": "0.1.1.0",
+    "Description": "Connect FFXIV Stage Manager to local rehearsal ghosts. Windows prototype; native ghosts await in-game validation.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/phamjordan/ffxiv-stage-manager-plugin",
+    "Tags": [
+      "rehearsal",
+      "theatre",
+      "stage"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": true,
+    "LoadPriority": 0,
+    "Punchline": "Rehearsal positions, local ghosts, and emote cues.",
+    "AcceptsFeedback": false,
+    "LastUpdate": 1790391264,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.1/StageManager-0.1.1-win-x64.zip",
+    "DownloadLinkUpdate": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.1/StageManager-0.1.1-win-x64.zip",
+    "DownloadLinkTesting": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.1/StageManager-0.1.1-win-x64.zip",
+    "Changelog": "# Stage Manager 0.1.1 \u2014 rehearsal prototype\n\n- First release available through the custom Dalamud repository feed.\n- Local performer ghost, optional director cast view, position markers,\n  distance and height guidance, and emote reminders.\n- Paired connection to the existing Stage Manager website for slide and\n  music timing, three-point venue calibration, and in-game position capture.\n- Windows cue chime and offline choreography JSON playback.\n- Built against stable Dalamud API 15 with .NET 10 for Windows x64.\n\nThe prototype builds and passes automated calibration, playback and bridge\nchecks. Native ghosts still need testing inside FFXIV on Windows. Start with\nmarkers, arm your venue, then try one ghost before a full-cast rehearsal.\n\nInstall instructions and the feed URL are in the repository README."
+  }
+]
