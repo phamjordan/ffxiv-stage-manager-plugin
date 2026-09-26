@@ -120,3 +120,20 @@ Version 0.1.1 was rebuilt against official stable `dalamud-distrib/latest.zip`
 26 C# core/loopback checks passed again. `tools/prepare-release.py` checks the
 built manifest, ZIP contents and integrity, and creates a SHA-256 checksum
 and staged repository feed. In-game native ghost validation remains pending.
+
+## Ghost movement correction (0.1.2)
+
+The first in-game report found ghosts remaining on their original marks across
+slide changes. The native adapter had assigned `Position` and `Rotation`
+fields directly. It now calls the game's `SetPosition` and `SetRotation`
+functions, exposed by FFXIVClientStructs, so a loaded model is notified of its
+new transform. This happens before the unchanged-action early return: editing
+a position within the same slide must not depend on restarting the emote.
+
+The release build against the same stable API 15 references has zero warnings
+or errors. Seven added checks cover positions at a browser-driven slide
+boundary, the director's cast, subsequent heartbeats, live edits with unchanged
+actions, rewinds, and `/nextpos` previews. All 40 Node/core/loopback checks pass.
+These exercise the targets supplied to the adapter; they cannot verify native
+draw-object behavior outside FFXIV. In-game confirmation of this correction
+remains pending. The web protocol and saved calibration format are unchanged.

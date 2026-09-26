@@ -48,8 +48,11 @@ internal sealed unsafe class NativeGhosts(IObjectTable objects, IDataManager dat
             }
             var actor = Resolve(manager, owned);
             if (actor == null) { actors.Remove(target.Cast.Id); continue; }
-            actor->Position = new(target.Position.X, target.Position.Y, target.Position.Z);
-            actor->Rotation = target.Position.Yaw;
+            // Native setters notify the draw object. Raw field writes leave an
+            // already-loaded model at its previous transform after a slide change.
+            // Keep this before the action-key check: a position edit need not change the emote.
+            actor->SetPosition(target.Position.X, target.Position.Y, target.Position.Z);
+            actor->SetRotation(target.Position.Yaw);
             actor->Alpha = Math.Clamp(alpha, .1f, .8f);
             if (!owned.Ready)
             {
@@ -99,8 +102,8 @@ internal sealed unsafe class NativeGhosts(IObjectTable objects, IDataManager dat
         {
             actor->ObjectKind = ObjectKind.BattleNpc;
             actor->TargetableStatus = 0;
-            actor->Position = new(target.Position.X, target.Position.Y, target.Position.Z);
-            actor->Rotation = target.Position.Yaw;
+            actor->SetPosition(target.Position.X, target.Position.Y, target.Position.Z);
+            actor->SetRotation(target.Position.Yaw);
             actor->Alpha = Math.Clamp(alpha, .1f, .8f);
             if (!customize.Normalize(&customize)) throw new ArgumentException("Invalid character customization.");
             actor->DrawData.CustomizeData = customize;

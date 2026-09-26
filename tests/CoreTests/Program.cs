@@ -42,6 +42,41 @@ Reject(bad.Validate, "duplicate slide times rejected");
 bad = WireJson.Parse<RehearsalPackage>(WireJson.Serialize(package)); bad.Slides[0] = bad.Slides[0] with { Positions = [bad.Slides[0].Positions[0] with { X = float.NaN }] };
 Reject(bad.Validate, "non-finite native position rejected");
 
+// Regression for ghosts stuck on the opening mark. Verify the transforms sent
+// to the native adapter while the browser reuses its original choreography.
+// The game's draw-object notifications still require an in-game check.
+var movementPackage = WireJson.Parse<RehearsalPackage>(WireJson.Serialize(package));
+movementPackage.Cues = []; // Exercise an ordinary slide boundary without /nextpos.
+var movement = new RehearsalEngine();
+var playback = new Transport("movement", 1, "song", 9750, true, true);
+movement.Receive(new(movementPackage, playback), 200);
+Check(movement.Targets(200.249, "alice", false).Single().Position == movementPackage.Slides[0].Positions[0],
+    "browser playback keeps the opening position until the slide boundary");
+var chorusPosition = movementPackage.Slides[1].Positions[0];
+Check(movement.Targets(200.25, "alice", false).Single().Position == chorusPosition,
+    "slide boundary updates XYZ, height and facing without resending choreography");
+Check(movement.Targets(200.25, "alice", true).All(target =>
+    target.Position == movementPackage.Slides[1].Positions.Single(p => p.CastId == target.Cast.Id)),
+    "director targets all move to the chorus, including the actor with no emote change");
+movement.Receive(new(null, playback with { Sequence = 2, PositionMs = 10250 }), 200.5);
+var beforeEdit = movement.Targets(200.5, "alice", false).Single();
+Check(beforeEdit.Position == chorusPosition, "browser heartbeat retains the new slide position");
+var edited = WireJson.Parse<RehearsalPackage>(WireJson.Serialize(movementPackage));
+var editedPosition = chorusPosition with { X = 18, Y = 5, Z = 26, Yaw = -.75f };
+edited.Slides[1].Positions[0] = editedPosition;
+movement.Receive(new(edited, playback with { Sequence = 3, PositionMs = 10500 }), 201);
+var afterEdit = movement.Targets(201, "alice", false).Single();
+Check(afterEdit.Position == editedPosition && afterEdit.ActionKey == beforeEdit.ActionKey,
+    "live position edits update the target even when its action key is unchanged");
+movement.Receive(new(null, playback with { Sequence = 4, PositionMs = 1000, Playing = false }), 201.25);
+Check(movement.Targets(201.25, "alice", false).Single().Position == edited.Slides[0].Positions[0],
+    "browser rewind restores the opening position and facing");
+movement.Load(package, 202);
+movement.Seek(5000, false, 202);
+var previewPosition = movement.Targets(202, "alice", false).Single();
+Check(previewPosition.Preview && previewPosition.Position == package.Slides[1].Positions[0],
+    "nextpos preview uses the upcoming slide's XYZ and facing before its action starts");
+
 if (args.Contains("--bridge"))
 {
     var snapshot = new PlayerSnapshot(new(1, 2, 3), .5f, package.Venue.Scope, "Test Actor");

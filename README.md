@@ -1,9 +1,10 @@
 # FFXIV Stage Manager — first prototype
 
-Version **0.1.1**, built for **Windows x64, .NET 10, Dalamud API 15**.
+Version **0.1.2**, built for **Windows x64, .NET 10, Dalamud API 15**.
 Created on 2026-09-25. The plugin compiles and its calibration, cue engine,
-browser integration, and loopback protocol have been tested. **Native ghost
-rendering has not yet been tested inside FFXIV.**
+browser integration, and loopback protocol have been tested. Initial in-game
+testing exposed ghosts remaining on their first mark; **0.1.2 corrects the
+native position/rotation update path and awaits in-game confirmation.**
 
 ## What is implemented
 
