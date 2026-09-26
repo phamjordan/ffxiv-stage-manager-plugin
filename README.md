@@ -1,10 +1,9 @@
 # FFXIV Stage Manager — first prototype
 
-Version **0.1.2**, built for **Windows x64, .NET 10, Dalamud API 15**.
+Version **0.1.3**, built for **Windows x64, .NET 10, Dalamud API 15**.
 Created on 2026-09-25. The plugin compiles and its calibration, cue engine,
-browser integration, and loopback protocol have been tested. Initial in-game
-testing exposed ghosts remaining on their first mark; **0.1.2 corrects the
-native position/rotation update path and awaits in-game confirmation.**
+browser integration, and loopback protocol have been tested. Native ghost
+behavior and emote detection still need verification in FFXIV on Windows.
 
 ## What is implemented
 
@@ -17,13 +16,17 @@ native position/rotation update path and awaits in-game confirmation.**
 - A timed `/nextpos` lyric previews the next slide's position. The ghost stays
   idle during the preview and starts the next action when that slide begins.
 - Timed lyric emotes can address a character name, role name, or everyone.
-- Floor rings, a facing line, horizontal distance, height difference, and
-  emote text accompany ghosts. A marker turns green within 0.5 horizontal
-  units and 0.35 vertical units of the mark.
+- Each floor ring checks its assigned performer: red off mark, yellow on
+  mark awaiting an emote, green ready, and gray when the performer is missing.
+  The mark tolerance is 0.5 horizontal units and 0.35 vertical units.
+- Upcoming emotes have countdowns above their world markers and in a separate
+  HUD for your selected role, including cues later in the same slide.
+- Paused/stopped browser playback leaves ghosts standing idle. Resuming
+  restarts the appropriate emote. Countdown timers hold while paused.
 - The browser supplies music timing over a paired local connection. The plugin
   can play a Windows cue chime; the existing browser supplies spoken prompts.
-- Choreography JSON export/import provides a disconnected alternative with
-  manual plugin playback controls.
+- Choreography and playback sync through the browser bridge. There is no
+  choreography file import or independent playback control in the plugin.
 
 The plugin does not move or make the real player perform an emote. Performers
 follow the ghost themselves. Each participant needs the plugin to see their
@@ -47,15 +50,14 @@ local rehearsal visuals.
    source changes are installed in your attached web project and deployed at
    https://ffxiv.jjammin.com/stage-manager/. See `DEPLOYMENT.md` for the
    deployed commit and version.
-5. Open a song, then **In-game rehearsal**. Copy the displayed web origin
-   into the plugin's **Web origin** field. It is just scheme + host + port,
+5. Open a song, then **In-game rehearsal**. In the plugin's **Connection**
+   tab, copy the displayed web origin into **Web origin**. It is scheme + host + port,
    such as `https://example.com`, with no path or trailing slash.
 6. Click **Enable local bridge**, then **Copy pairing token**. Paste the token
    into the browser panel and connect. The token is held only in browser
    memory and changes whenever the plugin bridge restarts.
-7. Allow the browser's local-network permission if requested. If that browser
-   blocks the loopback connection, use JSON export/import. Do not disable
-   browser security settings to make the connection work.
+7. Allow the browser's local-network permission if requested. If the browser
+   cannot connect, check its site permissions and confirm the origin/token.
 
 Each cast member pairs their own browser and game client. Your existing
 Supabase rehearsal room continues synchronizing their browser audio with
@@ -118,16 +120,36 @@ not the human-facing ward and plot numbers. Leaving the venue disarms it.
    for three seconds hides the rehearsal instead of leaving stale marks.
 
 Plugin controls: `/stage` toggles the window, `/stage nextpos` manually
-previews the next mark, and `/stage stop` disarms and removes rehearsal
+previews the next mark, `/stage current` returns to the current mark,
+and `/stage stop` disarms and removes rehearsal
 visuals. A slide without an actor's position means that actor is offstage.
 
-## Disconnected playback
+## Readiness, countdowns, and window layout
 
-Export **plugin choreography** from the calibrated song. In `/stage`, disable
-the bridge, enter the JSON file path, and load it. Select a cast member,
-arm the venue, then use Play/Pause/Seek. Music is not embedded in this file;
-start it separately. File playback is useful for blocking practice and
-checking marks, not synchronized full-cast performances.
+- **Rehearsal:** choose your role, enable director view, arm/hide the venue,
+  preview the next position, return to the current position, and see readiness.
+- **Connection:** set the browser origin, enable the bridge, and copy its token.
+- **Display & sound:** ghost visibility/opacity, your countdown HUD, and chime.
+
+Return to current position cancels both manual and automatic `/nextpos`
+preview until the current slide ends. It does not seek or restart the music.
+You can preview again immediately using the adjacent button.
+
+Your selected role uses your local player. Other cast rings use the real nearby
+player matching that cast member's name and home world. Standing at someone
+else's mark cannot complete their cue. Missing players have gray markers.
+
+An emote counts when its ID is observed on the assigned performer after the
+cue is due and while on the correct mark. A short emote remains complete for
+that cue. Leaving the mark, the next cue, changing positions, pausing/resuming,
+or replaying resets completion. A preview with an upcoming emote stays yellow
+until that cue is due; a mark without an emote requirement is green on arrival.
+Commands the game cannot resolve stay pending instead of being marked complete.
+
+The countdown names the next emote and slide, including a timed emote later
+in the current slide. It uses the browser's song clock and holds while paused.
+World labels remain visible with the plugin window closed. The optional HUD
+at the top of the screen shows your selected cast member's upcoming/due emote.
 
 ## Prototype limits and first in-game checks
 
@@ -164,6 +186,7 @@ checking marks, not synchronized full-cast performances.
 | --- | --- |
 | `Core/Models.cs` | Versioned JSON contract and validation |
 | `Core/RehearsalEngine.cs` | Playback clock, preview/action selection, seek and reconnect behavior |
+| `Core/ReadinessTracker.cs` | Per-performer position and emote completion |
 | `Core/LoopbackBridge.cs` | Bounded loopback HTTP, exact origin, pairing token |
 | `Plugin/Plugin.cs` | Dalamud services, venue capture, UI, markers, cue chime |
 | `Plugin/NativeGhosts.cs` | Main-thread native actor ownership and emote timelines |

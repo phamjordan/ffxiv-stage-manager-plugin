@@ -77,6 +77,8 @@ var previewPosition = movement.Targets(202, "alice", false).Single();
 Check(previewPosition.Preview && previewPosition.Position == package.Slides[1].Positions[0],
     "nextpos preview uses the upcoming slide's XYZ and facing before its action starts");
 
+RehearsalBehaviorChecks.Run(package, Check);
+
 if (args.Contains("--bridge"))
 {
     var snapshot = new PlayerSnapshot(new(1, 2, 3), .5f, package.Venue.Scope, "Test Actor");

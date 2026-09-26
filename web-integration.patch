@@ -307,8 +307,8 @@
 +    <details><summary>4 · Preview and share</summary>
 +      <p>Timed <b>/nextpos</b> lyrics reveal the next slide’s ghost and a five-second movement countdown. Its emote starts when that slide begins. Emotes in timed lyrics also work.</p>
 +      <p>Use <b>Character Name: /beesknees</b>, a role name, or <b>All: /beesknees</b> to target cues. Unlabelled commands apply to everyone.</p>
-+      <button data-export>Export plugin choreography</button>
-+      <p>JSON export also works without a browser connection: import it in /stage, choose your cast member, then use the plugin playback controls.</p>
++      <button data-export>Download choreography backup</button>
++      <p>The plugin follows this browser through the bridge. Use the browser to play, pause, or stop. The download is a backup for reference; no file import is needed in the plugin.</p>
 +      <pre data-warnings></pre>
 +    </details>
 +  `;
@@ -335,7 +335,7 @@
 +        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
 +        body: JSON.stringify(body), signal: AbortSignal.timeout(2500), credentials: 'omit', cache: 'no-store',
 +      });
-+    } catch { throw new Error('Cannot reach the plugin. Check /stage, the Web origin, and browser permission for local network access. JSON export remains available.'); }
++    } catch { throw new Error('Cannot reach the plugin. Check the Connection tab in /stage, the Web origin, and browser permission for local network access.'); }
 +    const reply = await response.json();
 +    if (!response.ok || !reply.ok) throw new Error(reply.message || 'The plugin rejected this request.');
 +    return reply;
@@ -411,7 +411,7 @@
 +  });
 +  $('export').onclick = run(() => {
 +    const ctx = current(), pkg = compilePackage(ctx); $('warnings').textContent = pkg.warnings.join('\n');
-+    download(`${safeName(ctx.song.title)}.stage.json`, pkg); status('Choreography exported. Import this file in /stage.');
++    download(`${safeName(ctx.song.title)}.stage.json`, pkg); status('Choreography backup downloaded. The plugin continues to sync through the bridge.');
 +  });
 +  $('export-venue').onclick = run(() => { const venue = findVenue(current().slides); calibration(venue); download('stage-calibration.json', venue); });
 +  $('import-venue').onchange = run(async () => {

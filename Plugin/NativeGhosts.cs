@@ -20,7 +20,8 @@ internal sealed unsafe class NativeGhosts(IObjectTable objects, IDataManager dat
     }
     private readonly Dictionary<string, Owned> actors = [];
     private readonly Dictionary<string, double> retryAfter = [];
-    private readonly Dictionary<string, ActionTimeline?> timelines = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record EmoteDefinition(uint Id, ActionTimeline? Timeline);
+    private readonly Dictionary<string, EmoteDefinition?> emotes = new(StringComparer.OrdinalIgnoreCase);
     public int Count => actors.Count;
     public string Status { get; private set; } = "";
 
@@ -63,13 +64,17 @@ internal sealed unsafe class NativeGhosts(IObjectTable objects, IDataManager dat
                 }
                 actor->EnableDraw(); owned.Ready = true;
             }
-            if (owned.ActionKey == target.ActionKey) continue;
-            owned.ActionKey = target.ActionKey;
+            if (owned.ActionKey == target.AnimationKey) continue;
+            owned.ActionKey = target.AnimationKey;
             actor->Timeline.BaseOverride = 0;
+            actor->Timeline.LipsOverride = 0;
             actor->SetMode(CharacterModes.Normal, 0);
-            actor->Timeline.TimelineSequencer.PlayTimeline(0);
-            if (target.Emote.Length == 0) continue;
-            var timeline = FindTimeline(target.Emote);
+            // Clear every slot on our own actor, including upper-body/facial
+            // gestures. A base-only reset can leave a one-shot emote running.
+            for (uint slot = 0; slot < actor->Timeline.TimelineSequencer.TimelineIds.Length; slot++)
+                actor->Timeline.TimelineSequencer.SetSlotTimeline(slot, 0);
+            if (!target.Animate || target.Emote.Length == 0) continue;
+            var timeline = FindEmote(target.Emote)?.Timeline;
             if (timeline is null) { Status = $"/{target.Emote}: no supported emote timeline; text cue remains visible."; continue; }
             actor->SetMode(CharacterModes.AnimLock, 0);
             if (timeline.Value.ActionTimelineIDMode == 0)
@@ -81,6 +86,17 @@ internal sealed unsafe class NativeGhosts(IObjectTable objects, IDataManager dat
     private IPlayerCharacter? FindPlayer(CastMember cast) => objects.OfType<IPlayerCharacter>().FirstOrDefault(p =>
         p.Name.TextValue.Equals(cast.Name, StringComparison.OrdinalIgnoreCase) &&
         (cast.World.Length == 0 || p.HomeWorld.Value.Name.ToString().Equals(cast.World, StringComparison.OrdinalIgnoreCase)));
+
+    public ActorObservation? Observe(RenderTarget target, string ownCastId)
+    {
+        var performer = target.Cast.Id == ownCastId ? objects.LocalPlayer : FindPlayer(target.Cast);
+        if (performer is null || performer.Address == 0) return null;
+        var character = (Character*)performer.Address;
+        var position = character->Position;
+        var expected = target.RequiredEmote.Length == 0 ? null : FindEmote(target.RequiredEmote);
+        return new(new(position.X, position.Y, position.Z),
+            expected is not null && character->EmoteController.EmoteId == expected.Id);
+    }
 
     private Owned? Spawn(ClientObjectManager* manager, IPlayerCharacter source, RenderTarget target, double now, float alpha)
     {
@@ -124,20 +140,20 @@ internal sealed unsafe class NativeGhosts(IObjectTable objects, IDataManager dat
         catch { manager->DeleteObjectByIndex((ushort)index, 0); throw; }
     }
 
-    private ActionTimeline? FindTimeline(string command)
+    private EmoteDefinition? FindEmote(string command)
     {
-        if (timelines.TryGetValue(command, out var cached)) return cached;
-        ActionTimeline? result = null;
+        if (emotes.TryGetValue(command, out var cached)) return cached;
+        EmoteDefinition? result = null;
         foreach (var emote in data.GetExcelSheet<Emote>())
         {
             if (emote.TextCommand.RowId == 0) continue;
             var text = emote.TextCommand.Value;
             if (!new[] { text.Command.ToString(), text.ShortCommand.ToString(), text.Alias.ToString(), text.ShortAlias.ToString() }
                     .Any(s => s.TrimStart('/').Equals(command, StringComparison.OrdinalIgnoreCase))) continue;
-            if (emote.ActionTimeline[0].RowId is > 0 and <= ushort.MaxValue) result = emote.ActionTimeline[0].Value;
+            result = new(emote.RowId, emote.ActionTimeline[0].RowId is > 0 and <= ushort.MaxValue ? emote.ActionTimeline[0].Value : null);
             break;
         }
-        timelines[command] = result;
+        emotes[command] = result;
         return result;
     }
 

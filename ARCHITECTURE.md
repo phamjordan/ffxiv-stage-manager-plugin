@@ -137,3 +137,35 @@ actions, rewinds, and `/nextpos` previews. All 40 Node/core/loopback checks pass
 These exercise the targets supplied to the adapter; they cannot verify native
 draw-object behavior outside FFXIV. In-game confirmation of this correction
 remains pending. The web protocol and saved calibration format are unchanged.
+
+## Rehearsal feedback and controls (0.1.3)
+
+Readiness is evaluated per cast ID from the assigned real player, with each
+remote performer resolved by character name and home world. Missing players
+produce an unavailable state. The selected local role uses the local player.
+The observer reads the real player's `EmoteController.EmoteId` on the framework
+thread and compares it with the command's Emote sheet row. It never executes
+an emote on a player or uses a ghost's animation to claim readiness.
+
+`ReadinessTracker` owns managed cue completion. It checks horizontal distance
+and height before accepting a due emote, retains completion for short gestures,
+and resets for a new cue, edited position, leaving the mark, or new playback
+epoch. Paused and preview targets cannot complete an emote. Unknown commands
+stay pending; unsupported or mod-specific emotes need in-game validation.
+
+Ghost animation keys include playback state/epoch. Pausing resets the owned
+ghost's overrides and timeline slots to idle. Resuming applies the current cue
+again. Upcoming emotes are indexed when choreography changes, combining slide
+actions and timed cues with last-cue-wins behavior at tied timestamps. The
+world labels and selected-performer HUD use the same browser clock.
+
+The window now groups Rehearsal, Connection, and Display & sound controls.
+Choreography file import and local playback controls are removed. The internal
+load/seek functions remain for deterministic engine tests. Return to current
+position suppresses preview until the current slide ends; music keeps playing.
+
+Verification: release builds without warnings; seven Node checks plus 65 C#
+core/bridge checks pass. Browser regression covers pairing, calibration, actor
+cue editing, position capture, backup export, slide switching and app startup.
+The native idle transition, live emote observation, and ImGui layout still
+require validation in Windows FFXIV.

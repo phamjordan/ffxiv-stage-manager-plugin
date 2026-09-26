@@ -14,7 +14,12 @@ public record Cue(string Id, double AtMs, string Kind, string[] CastIds, string 
 public record Transport(string SessionId, long Sequence, string SongId, double PositionMs, bool Playing, bool Active);
 public record BridgeMessage(RehearsalPackage? Package, Transport Transport);
 public record BridgeReply(bool Ok, string Message, PlayerSnapshot? Snapshot);
-public record RenderTarget(CastMember Cast, CastPosition Position, string SlideId, string Label, bool Preview, string Emote, string ActionKey, double MoveInMs);
+public record EmoteCountdown(string Emote, string SlideId, string Label, double InMs);
+public record RenderTarget(CastMember Cast, CastPosition Position, string SlideId, string Label, bool Preview, string Emote, string ActionKey, double MoveInMs,
+    string RequiredEmote = "", bool Animate = true, long PlaybackEpoch = 0, EmoteCountdown? UpcomingEmote = null)
+{
+    public string AnimationKey => Animate && Emote.Length > 0 ? $"{PlaybackEpoch}:{ActionKey}" : "idle";
+}
 
 public sealed class RehearsalPackage
 {
