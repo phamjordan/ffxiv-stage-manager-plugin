@@ -3,7 +3,7 @@
     "Author": "Stage Manager",
     "Name": "Stage Manager",
     "InternalName": "StageManager",
-    "AssemblyVersion": "0.1.2.0",
+    "AssemblyVersion": "0.1.3.0",
     "Description": "Connect FFXIV Stage Manager to local rehearsal ghosts. Windows prototype; native ghosts await in-game validation.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/phamjordan/ffxiv-stage-manager-plugin",
@@ -19,12 +19,12 @@
     "LoadPriority": 0,
     "Punchline": "Rehearsal positions, local ghosts, and emote cues.",
     "AcceptsFeedback": false,
-    "LastUpdate": 1790393989,
+    "LastUpdate": 1790396012,
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.2/StageManager-0.1.2-win-x64.zip",
-    "DownloadLinkUpdate": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.2/StageManager-0.1.2-win-x64.zip",
-    "DownloadLinkTesting": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.2/StageManager-0.1.2-win-x64.zip",
-    "Changelog": "# Stage Manager 0.1.2 \u2014 ghost position updates\n\n- Correct the native transform update used when an existing ghost changes\n  position or facing. The previous version wrote actor fields directly,\n  which could leave the visible model standing on its first slide's mark.\n- Use the game's position and rotation setters for both creation and updates.\n  Updates still run independently of emote changes, including live position edits.\n- Add position-transition regression coverage for browser playback, director\n  view, preview cues, rewinds, and edits with an unchanged emote.\n- Retains Dalamud API 15 and the existing choreography/calibration format.\n\nUpdate Stage Manager through `/xlplugins`, then reconnect the website using\nthe new pairing token and arm the venue again. Existing calibration can be\nreused. The native movement correction still needs confirmation inside FFXIV\non Windows; automated checks cannot validate the game's rendered model.\n\nInstall instructions and the feed URL are in the repository README."
+    "DownloadLinkInstall": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.3/StageManager-0.1.3-win-x64.zip",
+    "DownloadLinkUpdate": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.3/StageManager-0.1.3-win-x64.zip",
+    "DownloadLinkTesting": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.3/StageManager-0.1.3-win-x64.zip",
+    "Changelog": "# Stage Manager 0.1.3 \u2014 rehearsal feedback and controls\n\n- Rings now check each assigned performer: red off mark, yellow on mark with\n  an emote pending, green ready, and gray when that performer is not nearby.\n- An observed matching emote completes the current cue. Short emotes stay\n  complete while the performer remains on the mark; new cues and replay reset it.\n- Ghosts return to idle when browser playback pauses or stops, and resume\n  their current action when playback resumes.\n- Countdown labels show upcoming emotes at the next position and later in the\n  same slide. Your selected role also has a visible countdown HUD.\n- Add Return to current position (also /stage current) to cancel a preview\n  until the next slide without interrupting playback.\n- Organize the window into Rehearsal, Connection, and Display & sound tabs.\n- Remove choreography JSON loading and independent playback controls; the\n  plugin follows the browser bridge.\n\nUpdate through /xlplugins, enable the bridge in the Connection tab, reconnect\nusing the new pairing token, and arm the venue. Existing calibration works.\nGame-rendered idle transitions and live performer emote detection require\nin-game confirmation on Windows; automated checks cover cue/readiness logic."
   }
 ]
