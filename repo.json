@@ -3,7 +3,7 @@
     "Author": "Stage Manager",
     "Name": "Stage Manager",
     "InternalName": "StageManager",
-    "AssemblyVersion": "0.1.3.0",
+    "AssemblyVersion": "0.1.4.0",
     "Description": "Connect FFXIV Stage Manager to local rehearsal ghosts. Windows prototype; native ghosts await in-game validation.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/phamjordan/ffxiv-stage-manager-plugin",
@@ -19,12 +19,12 @@
     "LoadPriority": 0,
     "Punchline": "Rehearsal positions, local ghosts, and emote cues.",
     "AcceptsFeedback": false,
-    "LastUpdate": 1790396012,
+    "LastUpdate": 1790405169,
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.3/StageManager-0.1.3-win-x64.zip",
-    "DownloadLinkUpdate": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.3/StageManager-0.1.3-win-x64.zip",
-    "DownloadLinkTesting": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.3/StageManager-0.1.3-win-x64.zip",
-    "Changelog": "# Stage Manager 0.1.3 \u2014 rehearsal feedback and controls\n\n- Rings now check each assigned performer: red off mark, yellow on mark with\n  an emote pending, green ready, and gray when that performer is not nearby.\n- An observed matching emote completes the current cue. Short emotes stay\n  complete while the performer remains on the mark; new cues and replay reset it.\n- Ghosts return to idle when browser playback pauses or stops, and resume\n  their current action when playback resumes.\n- Countdown labels show upcoming emotes at the next position and later in the\n  same slide. Your selected role also has a visible countdown HUD.\n- Add Return to current position (also /stage current) to cancel a preview\n  until the next slide without interrupting playback.\n- Organize the window into Rehearsal, Connection, and Display & sound tabs.\n- Remove choreography JSON loading and independent playback controls; the\n  plugin follows the browser bridge.\n\nUpdate through /xlplugins, enable the bridge in the Connection tab, reconnect\nusing the new pairing token, and arm the venue. Existing calibration works.\nGame-rendered idle transitions and live performer emote detection require\nin-game confirmation on Windows; automated checks cover cue/readiness logic."
+    "DownloadLinkInstall": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.4/StageManager-0.1.4-win-x64.zip",
+    "DownloadLinkUpdate": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.4/StageManager-0.1.4-win-x64.zip",
+    "DownloadLinkTesting": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.4/StageManager-0.1.4-win-x64.zip",
+    "Changelog": "# Stage Manager 0.1.4 \u2014 stage boundaries and direction guidance\n\n- Calibrate with all four stage corners: front-left, front-right, back-right,\n  back-left, following the map with the audience at the bottom.\n- See a numbered stage outline on the web map and a cyan boundary in-game.\n- Follow a line from your moving character to your own displayed mark, with\n  an arrow, remaining horizontal distance, and height difference when needed.\n- The line is blue for the current mark and gold for the next-position preview.\n  /nextpos and Preview next position switch it to the next mark; Return to\n  current position switches it back. It disappears when you reach your mark.\n- Toggle the stage boundary and direction line in Display & sound. Both start\n  enabled and work with ghost models disabled.\n- Existing three-point calibrations retain their mapping. Capture and save\n  four corners to enable the boundary. All four captures contribute to the new\n  mapping; crossed corners and mismatched captures are rejected.\n\nUpdate through /xlplugins, refresh the Stage Manager website, reconnect the\nbridge with its new pairing token, and arm the venue. Capture all four corners\nand save the calibration to use the outline. The website URL stays the same.\n\nThe release compiles against stable Dalamud API 15. Calibration, protocol, and\nbrowser checks pass; the new in-game overlays need visual confirmation in\nFFXIV on Windows. Guidance is a straight line, not obstacle-aware pathfinding."
   }
 ]
