@@ -3,7 +3,7 @@
     "Author": "Stage Manager",
     "Name": "Stage Manager",
     "InternalName": "StageManager",
-    "AssemblyVersion": "0.1.1.0",
+    "AssemblyVersion": "0.1.2.0",
     "Description": "Connect FFXIV Stage Manager to local rehearsal ghosts. Windows prototype; native ghosts await in-game validation.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/phamjordan/ffxiv-stage-manager-plugin",
@@ -19,12 +19,12 @@
     "LoadPriority": 0,
     "Punchline": "Rehearsal positions, local ghosts, and emote cues.",
     "AcceptsFeedback": false,
-    "LastUpdate": 1790391264,
+    "LastUpdate": 1790393989,
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.1/StageManager-0.1.1-win-x64.zip",
-    "DownloadLinkUpdate": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.1/StageManager-0.1.1-win-x64.zip",
-    "DownloadLinkTesting": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.1/StageManager-0.1.1-win-x64.zip",
-    "Changelog": "# Stage Manager 0.1.1 \u2014 rehearsal prototype\n\n- First release available through the custom Dalamud repository feed.\n- Local performer ghost, optional director cast view, position markers,\n  distance and height guidance, and emote reminders.\n- Paired connection to the existing Stage Manager website for slide and\n  music timing, three-point venue calibration, and in-game position capture.\n- Windows cue chime and offline choreography JSON playback.\n- Built against stable Dalamud API 15 with .NET 10 for Windows x64.\n\nThe prototype builds and passes automated calibration, playback and bridge\nchecks. Native ghosts still need testing inside FFXIV on Windows. Start with\nmarkers, arm your venue, then try one ghost before a full-cast rehearsal.\n\nInstall instructions and the feed URL are in the repository README."
+    "DownloadLinkInstall": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.2/StageManager-0.1.2-win-x64.zip",
+    "DownloadLinkUpdate": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.2/StageManager-0.1.2-win-x64.zip",
+    "DownloadLinkTesting": "https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/download/v0.1.2/StageManager-0.1.2-win-x64.zip",
+    "Changelog": "# Stage Manager 0.1.2 \u2014 ghost position updates\n\n- Correct the native transform update used when an existing ghost changes\n  position or facing. The previous version wrote actor fields directly,\n  which could leave the visible model standing on its first slide's mark.\n- Use the game's position and rotation setters for both creation and updates.\n  Updates still run independently of emote changes, including live position edits.\n- Add position-transition regression coverage for browser playback, director\n  view, preview cues, rewinds, and edits with an unchanged emote.\n- Retains Dalamud API 15 and the existing choreography/calibration format.\n\nUpdate Stage Manager through `/xlplugins`, then reconnect the website using\nthe new pairing token and arm the venue again. Existing calibration can be\nreused. The native movement correction still needs confirmation inside FFXIV\non Windows; automated checks cannot validate the game's rendered model.\n\nInstall instructions and the feed URL are in the repository README."
   }
 ]
