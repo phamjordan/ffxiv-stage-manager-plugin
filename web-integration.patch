@@ -1,0 +1,500 @@
+--- a/stage-manager/app.js
++++ b/stage-manager/app.js
+@@ -21,6 +21,8 @@
+ } from './db.js';
+ 
+ import { StageRenderer } from './stage.js';
++import { initGameBridge } from './game-bridge.js';
++import { findVenue } from './game-model.js';
+ import { AudioPlayer }   from './player.js';
+ import { RehearsalSync } from './sync.js';
+ import { cacheUploadedAudio, getCachedAudioSource } from './media-cache.js';
+@@ -55,6 +57,7 @@
+ let stageRenderer = null;
+ let audioPlayer   = null;
+ let rehearsalSync = null;
++let flushStageSaves = async () => {};
+ let playbackAudioUrl = null;
+ let playbackAudioSourceUrl = null;
+ let playbackAudioIsObjectUrl = false;
+@@ -70,6 +73,19 @@
+   initStageRenderer();
+   initAudioPlayer();
+   initSync();
++  initGameBridge({
++    getContext: () => ({
++      song: state.currentSong, cast: state.cast, slides: state.slides, lyrics: state.lyrics,
++      slideIndex: state.currentSlideIdx, castId: state.savedCastId, canEdit: isAdmin(),
++      active: document.getElementById('view-rehearsal').classList.contains('active') && state.slides.every(s => s.song_id === state.currentSong?.id),
++      positionMs: Math.max(0, (audioPlayer?.audio.currentTime || 0) * 1000),
++      playing: Boolean(audioPlayer?.loaded && !audioPlayer.audio.paused && !audioPlayer.audio.ended && audioPlayer.audio.readyState >= 3),
++    }),
++    saveCurrentStage: data => {
++      if (!isAdmin()) throw new Error('Stage editing requires a director.');
++      stageRenderer.commitStageData(data);
++    },
++  });
+   bindGlobalEvents();
+   bindAuthEvents();
+ 
+@@ -578,6 +594,16 @@
+       const slide = state.slides[idx];
+       if (!slide || !confirm(`Delete slide ${idx + 1}?`)) return;
+       try {
++        await flushStageSaves();
++        // Preserve the song's shared calibration if its carrying slide is deleted.
++        const venue = findVenue(state.slides);
++        const remaining = state.slides.find(s => s.id !== slide.id);
++        if (venue && remaining) {
++          const data = { ...remaining.stage_data, game_venue: venue };
++          await updateSlide(remaining.id, { stage_data: data });
++          remaining.stage_data = data;
++          if (rehearsalSync?.connected) rehearsalSync.broadcastStageUpdate(state.slides.indexOf(remaining), data);
++        }
+         await deleteSlide(slide.id);
+         state.slides.splice(idx, 1);
+         if (state.currentSlideIdx >= state.slides.length) {
+@@ -990,22 +1016,34 @@
+   const svg = document.getElementById('stageSvg');
+   stageRenderer = new StageRenderer(svg);
+ 
+-  // Debounced save: coalesce rapid stage changes into a single DB write
+-  let _savePending = null;
+-  let _saveTimer = null;
+-
++  // Keep each slide's pending save, including calibration, across navigation.
++  // Serialize writes per slide so a slower old save cannot overwrite a new one.
++  const pending = new Map();
++  const saving = new Map();
++  function persistPending(slideId) {
++    const entry = pending.get(slideId);
++    if (!entry) return saving.get(slideId) || Promise.resolve();
++    clearTimeout(entry.timer);
++    pending.delete(slideId);
++    const operation = (saving.get(slideId) || Promise.resolve()).catch(() => {})
++      .then(() => updateSlide(slideId, { stage_data: entry.stageData }));
++    saving.set(slideId, operation);
++    operation.finally(() => { if (saving.get(slideId) === operation) saving.delete(slideId); }).catch(() => {});
++    return operation;
++  }
++  flushStageSaves = async () => {
++    const ids = new Set([...pending.keys(), ...saving.keys()]);
++    await Promise.all([...ids].map(persistPending));
++  };
+   function debouncedSave(slideId, stageData, thumbIdx) {
+-    _savePending = { slideId, stageData, thumbIdx };
+-    if (_saveTimer) clearTimeout(_saveTimer);
+-    _saveTimer = setTimeout(() => {
+-      const { slideId: sid, stageData: sd, thumbIdx: ti } = _savePending;
+-      _savePending = null;
+-      _saveTimer = null;
+-      // Fire-and-forget: don't block the UI on the network round-trip
+-      updateSlide(sid, { stage_data: sd }).catch(e => console.warn('Failed to save slide:', e));
+-      const thumbContainer = document.getElementById(`slideThumb${ti}`);
+-      if (thumbContainer) stageRenderer.renderThumbnail(sd, state.cast, thumbContainer);
++    clearTimeout(pending.get(slideId)?.timer);
++    const timer = setTimeout(() => {
++      persistPending(slideId).catch(e => console.warn('Failed to save slide:', e));
++      const index = state.slides.findIndex(s => s.id === slideId);
++      const thumbContainer = document.getElementById(`slideThumb${index}`);
++      if (thumbContainer) stageRenderer.renderThumbnail(stageData, state.cast, thumbContainer);
+     }, 400);
++    pending.set(slideId, { stageData, timer });
+   }
+ 
+   stageRenderer.onUpdate((newData) => {
+@@ -1036,15 +1074,17 @@
+   });
+ 
+   audioPlayer.onSlideChange((idx) => {
+-    if (idx >= 0) {
+-      goToSlide(idx);
++    // AudioPlayer sorts by time; the editor stores slides by order_index.
++    const displayIndex = idx >= 0 ? state.slides.findIndex(s => s.id === audioPlayer.slides[idx]?.id) : -1;
++    if (displayIndex >= 0) {
++      goToSlide(displayIndex);
+     } else if (state.slides.length > 0) {
+       // Seeked before the first slide — show slide 0
+       goToSlide(0);
+     }
+     // Conductor broadcasts slide changes from audio sync
+     if (rehearsalSync?.connected && rehearsalSync.isConductor) {
+-      rehearsalSync.broadcastSlide(idx);
++      rehearsalSync.broadcastSlide(displayIndex);
+     }
+   });
+ 
+--- a/stage-manager/stage.js
++++ b/stage-manager/stage.js
+@@ -119,6 +119,13 @@
+   }
+ 
+   onUpdate(fn) { this.onChange = fn; }
++
++  /** Apply edits from the in-game rehearsal panel using the existing autosave. */
++  commitStageData(stageData) {
++    if (!this.editable) throw new Error('The stage is read-only.');
++    this.load(stageData, this.castMembers);
++    this._emitChange();
++  }
+ 
+   /** Render a miniature thumbnail into a container element */
+   renderThumbnail(stageData, castMembers, container) {
+--- /dev/null
++++ b/stage-manager/game-model.js
+@@ -0,0 +1,119 @@
++// Pure, versioned web → plugin contract. SVG y is depth; game y is height.
++export const SCHEMA_VERSION = 1;
++export const BRIDGE_PORT = 17845;
++
++function finite(value, label, min = -10000, max = 10000) {
++  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max)
++    throw new Error(`${label} must be a number between ${min} and ${max}.`);
++  return value;
++}
++
++export function calibration(venue) {
++  if (!venue || venue.anchors?.length !== 3 || !venue.scope || !venue.id)
++    throw new Error('Record three stage calibration points first.');
++  const [a, b, c] = venue.anchors;
++  for (const p of [a, b, c]) {
++    finite(p.u, 'Map X'); finite(p.v, 'Map Y');
++    for (const key of ['x', 'y', 'z']) finite(p.world?.[key], `Game ${key.toUpperCase()}`);
++  }
++  const du1 = b.u - a.u, dv1 = b.v - a.v, du2 = c.u - a.u, dv2 = c.v - a.v;
++  const det = du1 * dv2 - du2 * dv1;
++  if (Math.abs(det) < 1 || Math.abs(det) / (Math.hypot(du1, dv1) * Math.hypot(du2, dv2)) < .05)
++    throw new Error('Map calibration points must form a wide triangle.');
++  const dx1 = b.world.x - a.world.x, dz1 = b.world.z - a.world.z;
++  const dx2 = c.world.x - a.world.x, dz2 = c.world.z - a.world.z;
++  const worldDet = dx1 * dz2 - dx2 * dz1;
++  if (Math.abs(worldDet) < .01 || Math.abs(worldDet) / (Math.hypot(dx1, dz1) * Math.hypot(dx2, dz2)) < .05)
++    throw new Error('Game calibration points must form a wide triangle.');
++  // Three surveyed points define an affine map, including scale and rotation.
++  const xu = (dx1 * dv2 - dx2 * dv1) / det, xv = (dx2 * du1 - dx1 * du2) / det;
++  const zu = (dz1 * dv2 - dz2 * dv1) / det, zv = (dz2 * du1 - dz1 * du2) / det;
++  return { a, xu, xv, zu, zv, det: xu * zv - xv * zu };
++}
++
++export function toWorld(venue, position) {
++  const m = calibration(venue), du = finite(position.x, 'Map X') - m.a.u, dv = finite(position.y, 'Map Y') - m.a.v;
++  const heading = finite(position.game?.heading ?? 0, 'Facing', -360, 360) * Math.PI / 180;
++  const su = Math.sin(heading), sv = -Math.cos(heading);
++  return {
++    x: m.a.world.x + m.xu * du + m.xv * dv,
++    y: m.a.world.y + finite(position.game?.height ?? 0, 'Height offset', -100, 100),
++    z: m.a.world.z + m.zu * du + m.zv * dv,
++    yaw: Math.atan2(m.xu * su + m.xv * sv, m.zu * su + m.zv * sv),
++  };
++}
++
++export function fromWorld(venue, snapshot) {
++  const m = calibration(venue), w = snapshot.position;
++  if (scopeKey(venue.scope) !== scopeKey(snapshot.scope)) throw new Error('You are in a different venue.');
++  const dx = finite(w?.x, 'Game X') - m.a.world.x, dz = finite(w?.z, 'Game Z') - m.a.world.z;
++  const yaw = finite(snapshot.yaw, 'Yaw', -Math.PI * 2, Math.PI * 2);
++  const uDir = (m.zv * Math.sin(yaw) - m.xv * Math.cos(yaw)) / m.det;
++  const vDir = (-m.zu * Math.sin(yaw) + m.xu * Math.cos(yaw)) / m.det;
++  return {
++    x: m.a.u + (m.zv * dx - m.xv * dz) / m.det,
++    y: m.a.v + (-m.zu * dx + m.xu * dz) / m.det,
++    game: { height: finite(w.y, 'Game Y') - m.a.world.y, heading: Math.atan2(uDir, -vDir) * 180 / Math.PI },
++  };
++}
++
++export function scopeKey(scope) {
++  return [scope?.territory, scope?.world, scope?.ward, scope?.plot, scope?.room, scope?.houseId, scope?.instance].join('|');
++}
++
++export function findVenue(slides) {
++  return slides.map(s => s.stage_data?.game_venue).filter(Boolean)
++    .sort((a, b) => (b.revision || 0) - (a.revision || 0))[0] ?? null;
++}
++
++// Commands are animation reminders, never executable player chat commands.
++export function compilePackage(context, venue = findVenue(context.slides)) {
++  calibration(venue);
++  if (!context.song?.id || !context.slides?.length) throw new Error('Open a song with at least one slide.');
++  const warnings = [], cast = context.cast.map(c => ({ id: c.id, name: c.character_name, world: c.world || '', role: c.role_name || '' }));
++  const slides = [...context.slides].sort((a, b) => a.timestamp_ms - b.timestamp_ms || a.order_index - b.order_index).map(s => {
++    const seen = new Set();
++    const positions = (s.stage_data?.cast_positions || []).map(p => {
++      if (seen.has(p.cast_member_id)) throw new Error(`Duplicate actor in ${s.label || s.id}; keep one position per actor.`);
++      seen.add(p.cast_member_id);
++      if (!cast.some(c => c.id === p.cast_member_id)) throw new Error('A slide contains a deleted cast member.');
++      return { castId: p.cast_member_id, ...toWorld(venue, p), emote: normalizeEmote(p.game?.emote || '') };
++    });
++    return { id: s.id, label: s.label || 'Slide', atMs: finite(s.timestamp_ms, 'Slide time', 0, 86400000), positions };
++  });
++  for (let i = 1; i < slides.length; i++) {
++    if (slides[i].atMs === slides[i - 1].atMs) throw new Error('Give each slide a distinct timestamp before connecting.');
++  }
++  const cues = [];
++  for (const lyric of context.lyrics || []) {
++    const atMs = finite(lyric.timestamp_ms, 'Cue time', 0, 86400000);
++    for (const [lineIndex, line] of lyric.line_text.split('\n').entries()) {
++      const commands = line.match(/\/[a-zA-Z]\w*/g) || [];
++      if (!commands.length) continue;
++      const speaker = line.match(/^\s*([^:]+):/u)?.[1].trim();
++      const matched = speaker && !/^(all|everyone|cast)$/i.test(speaker)
++        ? cast.filter(c => c.name.toLowerCase() === speaker.toLowerCase() || (c.role && c.role.toLowerCase() === speaker.toLowerCase())) : [];
++      if (speaker && !/^(all|everyone|cast)$/i.test(speaker) && !matched.length) {
++        warnings.push(`Skipped unknown speaker "${speaker}" at ${atMs} ms.`); continue;
++      }
++      for (const [commandIndex, command] of commands.entries()) {
++        const next = command.toLowerCase() === '/nextpos';
++        const target = next ? slides.find(s => s.atMs > atMs) : null;
++        if (next && !target) { warnings.push('Skipped /nextpos after the last slide.'); continue; }
++        if (next && target.atMs < atMs + 5000) warnings.push(`The /nextpos at ${atMs} ms is less than five seconds before its slide; move the cue earlier to match the browser countdown.`);
++        cues.push({ id: `${lyric.id}:${lineIndex}:${commandIndex}`, atMs, kind: next ? 'preview' : 'emote',
++          castIds: matched.map(c => c.id), slideId: target?.id || '', emote: next ? '' : normalizeEmote(command), moveAtMs: next ? atMs + 5000 : atMs });
++      }
++    }
++  }
++  return { schemaVersion: SCHEMA_VERSION, songId: context.song.id, title: context.song.title,
++    durationMs: Math.max(context.song.duration_ms || 0, ...slides.map(s => s.atMs), ...cues.map(c => c.atMs)),
++    venue: { id: venue.id, name: venue.name || 'Stage', scope: venue.scope }, cast, slides, cues: cues.sort((a,b) => a.atMs - b.atMs), warnings };
++}
++
++export function normalizeEmote(value) {
++  const command = value.trim().replace(/^\//, '').toLowerCase();
++  if (command && !/^[a-z][a-z0-9_]{0,39}$/.test(command)) throw new Error('Use one emote command, for example /beesknees.');
++  if (command === 'nextpos') throw new Error('Put /nextpos in the timed lyrics, not in the emote field.');
++  return command;
++}
+--- /dev/null
++++ b/stage-manager/game-bridge.js
+@@ -0,0 +1,212 @@
++import { BRIDGE_PORT, calibration, compilePackage, findVenue, fromWorld, normalizeEmote, scopeKey } from './game-model.js';
++
++export function initGameBridge({ getContext, saveCurrentStage }) {
++  const css = document.createElement('link');
++  css.rel = 'stylesheet'; css.href = new URL('./game-bridge.css', import.meta.url).href;
++  document.head.appendChild(css);
++  const button = document.createElement('button');
++  button.className = 'game-open'; button.textContent = 'In-game rehearsal';
++  document.querySelector('.player-info').appendChild(button);
++  const panel = document.createElement('aside');
++  panel.className = 'game-panel'; panel.hidden = true;
++  panel.setAttribute('aria-label', 'In-game rehearsal');
++  panel.innerHTML = `
++    <header><h2>In-game rehearsal</h2><button data-close aria-label="Close">×</button></header>
++    <p>See your next position and emote in FFXIV. Open <b>/stage</b> in the Windows plugin.</p>
++    <details open><summary>1 · Connect this PC</summary>
++      <p>In the plugin, set Web origin to <code data-origin></code>, enable the bridge, then paste its pairing token below.</p>
++      <label>Pairing token <input data-token type="password" autocomplete="off" spellcheck="false"></label>
++      <div class="game-row"><button data-connect>Connect</button><button data-disconnect>Disconnect</button></div>
++      <p class="game-status" data-status role="status">Disconnected</p>
++      <p>Keep this browser open during rehearsal. Music and spoken reminders continue here.</p>
++    </details>
++    <details data-editor><summary>2 · Calibrate the stage</summary>
++      <p>Use three widely separated spots on the same floor. Pick each spot on the map, stand there in-game, then capture it. Map X/Y are canvas coordinates.</p>
++      <label>Venue name <input data-venue-name value="Main stage" maxlength="80"></label>
++      <div data-anchors></div>
++      <button data-save-venue>Save calibration to this song</button>
++      <p data-venue-status></p>
++      <div class="game-row"><button data-export-venue>Export calibration</button><label class="game-file">Import calibration<input data-import-venue type="file" accept="application/json,.json" hidden></label></div>
++    </details>
++    <details data-editor open><summary>3 · Actor on the current slide</summary>
++      <p data-slide></p>
++      <label>Cast member <select data-cast></select></label>
++      <label>Height above calibrated floor (game units) <input data-height type="number" step="0.01" min="-100" max="100" value="0"></label>
++      <label>Facing on map (0° up, 90° right) <input data-heading type="number" step="1" min="-360" max="360" value="0"></label>
++      <label>Emote when this slide starts <input data-emote placeholder="/beesknees" maxlength="41" spellcheck="false"></label>
++      <div class="game-row"><button data-save-actor>Save actor cue</button><button data-record>Record my game position</button></div>
++      <p>Recording sets map position, height, and facing. Place an actor on the map first. A blank emote leaves the ghost idle.</p>
++    </details>
++    <details><summary>4 · Preview and share</summary>
++      <p>Timed <b>/nextpos</b> lyrics reveal the next slide’s ghost and a five-second movement countdown. Its emote starts when that slide begins. Emotes in timed lyrics also work.</p>
++      <p>Use <b>Character Name: /beesknees</b>, a role name, or <b>All: /beesknees</b> to target cues. Unlabelled commands apply to everyone.</p>
++      <button data-export>Export plugin choreography</button>
++      <p>JSON export also works without a browser connection: import it in /stage, choose your cast member, then use the plugin playback controls.</p>
++      <pre data-warnings></pre>
++    </details>
++  `;
++  document.body.appendChild(panel);
++  panel.addEventListener('keydown', e => e.stopPropagation());
++  const $ = key => panel.querySelector(`[data-${key}]`);
++  $('origin').textContent = location.origin;
++  let token = '', connected = false, sending = false, lastPackage = '', sequence = 0, sessionId = '';
++  let anchors = [], pickIndex = null, lastSelection = '', lastSong = '', anchorSong = '';
++  const status = text => { $('status').textContent = text; };
++  const run = fn => async () => { try { await fn(); } catch (e) { status(e.message); } };
++  const current = () => {
++    const ctx = getContext();
++    if (!ctx.song || !ctx.slides.length || !ctx.active) throw new Error('Open a song with slides first.');
++    return ctx;
++  };
++  const edit = () => { const ctx = current(); if (!ctx.canEdit) throw new Error('Stage editing requires a director.'); return ctx; };
++  const stageCopy = ctx => structuredClone(ctx.slides[ctx.slideIndex].stage_data || { cast_positions: [], shapes: [] });
++  const request = async (route, body) => {
++    if (!token) throw new Error('Connect using the token shown in /stage.');
++    let response;
++    try {
++      response = await fetch(`http://127.0.0.1:${BRIDGE_PORT}/${route}`, {
++        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
++        body: JSON.stringify(body), signal: AbortSignal.timeout(2500), credentials: 'omit', cache: 'no-store',
++      });
++    } catch { throw new Error('Cannot reach the plugin. Check /stage, the Web origin, and browser permission for local network access. JSON export remains available.'); }
++    const reply = await response.json();
++    if (!response.ok || !reply.ok) throw new Error(reply.message || 'The plugin rejected this request.');
++    return reply;
++  };
++  const snapshot = async () => {
++    const reply = await request('snapshot', {});
++    if (!reply.snapshot) throw new Error('Log into FFXIV and wait until your character is ready.');
++    return reply.snapshot;
++  };
++
++  button.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden) refresh(true); };
++  $('close').onclick = () => { panel.hidden = true; pickIndex = null; };
++  $('connect').onclick = run(async () => {
++    token = $('token').value.trim(); await request('snapshot', {});
++    connected = true; lastPackage = ''; sequence = 0; sessionId = crypto.randomUUID(); status('Connected. Calibrate the stage to send choreography.');
++  });
++  $('disconnect').onclick = () => { connected = false; token = ''; $('token').value = ''; status('Disconnected. In-game markers clear after three seconds.'); };
++  $('cast').onchange = () => refreshActor();
++
++  function drawAnchors() {
++    $('anchors').replaceChildren();
++    for (let i = 0; i < 3; i++) {
++      const row = document.createElement('div'); row.className = 'game-anchor';
++      row.innerHTML = `<strong>Point ${i + 1}</strong><div class="game-row"><label>Map X<input type="number" data-u></label><label>Map Y<input type="number" data-v></label></div><div class="game-row"><button data-pick>Pick on map</button><button data-capture>Capture in-game</button></div><small data-result></small>`;
++      const a = anchors[i];
++      row.querySelector('[data-u]').value = a.u; row.querySelector('[data-v]').value = a.v;
++      row.querySelector('[data-u]').oninput = e => { a.u = Number(e.target.value); };
++      row.querySelector('[data-v]').oninput = e => { a.v = Number(e.target.value); };
++      row.querySelector('[data-result]').textContent = a.world ? `XYZ ${a.world.x.toFixed(2)}, ${a.world.y.toFixed(2)}, ${a.world.z.toFixed(2)}` : 'Not captured';
++      row.querySelector('[data-pick]').onclick = () => { pickIndex = i; status(`Click point ${i + 1} on the stage map.`); };
++      row.querySelector('[data-capture]').onclick = run(async () => {
++        const ctx = edit(), songId = ctx.song.id, p = await snapshot();
++        if (current().song.id !== songId) throw new Error('Song changed; capture again.');
++        a.world = p.position; a.scope = p.scope; drawAnchors(); status(`Captured point ${i + 1}.`);
++      });
++      $('anchors').appendChild(row);
++    }
++  }
++  document.getElementById('stageSvg').addEventListener('pointerdown', e => {
++    if (pickIndex === null) return;
++    e.preventDefault(); e.stopImmediatePropagation();
++    const svg = e.currentTarget, point = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM().inverse());
++    anchors[pickIndex].u = Math.round(point.x); anchors[pickIndex].v = Math.round(point.y);
++    pickIndex = null; drawAnchors(); status('Map point set. Stand at that spot in-game and capture it.');
++  }, true);
++  $('save-venue').onclick = run(() => {
++    const ctx = edit();
++    if (anchors.some(a => !a.world || !a.scope)) throw new Error('Capture all three points.');
++    if (anchors.some(a => scopeKey(a.scope) !== scopeKey(anchors[0].scope))) throw new Error('All points must be in the same venue.');
++    if (anchors.some(a => Math.abs(a.world.y - anchors[0].world.y) > .25)) throw new Error('Calibrate on one level floor; use actor height offsets for raised platforms.');
++    const venue = { id: crypto.randomUUID(), revision: Date.now(), name: $('venue-name').value || 'Stage', scope: anchors[0].scope, anchors: structuredClone(anchors) };
++    calibration(venue);
++    const data = stageCopy(ctx); data.game_venue = venue; saveCurrentStage(data);
++    status('Calibration saved through the existing slide autosave. Arm this venue in /stage after checking a test marker.'); refresh(true);
++  });
++  $('save-actor').onclick = run(() => {
++    const ctx = edit(), data = stageCopy(ctx), p = data.cast_positions.find(p => p.cast_member_id === $('cast').value);
++    if (!p) throw new Error('Place this cast member on the current slide first.');
++    p.game = { height: Number($('height').value), heading: Number($('heading').value), emote: normalizeEmote($('emote').value) };
++    // Compile validates coordinates before saving.
++    const slides = ctx.slides.map((s, i) => i === ctx.slideIndex ? { ...s, stage_data: data } : s);
++    compilePackage({ ...ctx, slides }); saveCurrentStage(data); status('Actor cue saved through slide autosave.');
++  });
++  $('record').onclick = run(async () => {
++    const ctx = edit(), songId = ctx.song.id, slideId = ctx.slides[ctx.slideIndex].id, castId = $('cast').value;
++    const captured = await snapshot(), fresh = edit();
++    if (fresh.song.id !== songId || fresh.slides[fresh.slideIndex].id !== slideId) throw new Error('Slide changed during capture; record again.');
++    const data = stageCopy(fresh), p = data.cast_positions.find(p => p.cast_member_id === castId);
++    if (!p) throw new Error('Place this cast member on the current slide first.');
++    const converted = fromWorld(findVenue(fresh.slides), captured);
++    p.x = converted.x; p.y = converted.y; p.game = { ...p.game, ...converted.game };
++    saveCurrentStage(data); refreshActor(); status('Recorded position, height, and facing.');
++  });
++  $('export').onclick = run(() => {
++    const ctx = current(), pkg = compilePackage(ctx); $('warnings').textContent = pkg.warnings.join('\n');
++    download(`${safeName(ctx.song.title)}.stage.json`, pkg); status('Choreography exported. Import this file in /stage.');
++  });
++  $('export-venue').onclick = run(() => { const venue = findVenue(current().slides); calibration(venue); download('stage-calibration.json', venue); });
++  $('import-venue').onchange = run(async () => {
++    const ctx = edit(), songId = ctx.song.id, file = $('import-venue').files[0];
++    if (!file) return; if (file.size > 100000) throw new Error('Calibration file is too large.');
++    const venue = JSON.parse(await file.text()); calibration(venue);
++    const fresh = edit(); if (fresh.song.id !== songId) throw new Error('Song changed; import again.');
++    venue.revision = Date.now(); const data = stageCopy(fresh); data.game_venue = venue;
++    saveCurrentStage(data); anchorSong = ''; refresh(true); status('Calibration imported.'); $('import-venue').value = '';
++  });
++
++  function refreshActor() {
++    const ctx = getContext(), p = ctx.slides[ctx.slideIndex]?.stage_data?.cast_positions?.find(p => p.cast_member_id === $('cast').value);
++    $('height').value = p?.game?.height ?? 0; $('heading').value = p?.game?.heading ?? 0; $('emote').value = p?.game?.emote ?? '';
++  }
++  function refresh(force = false) {
++    const ctx = getContext();
++    panel.querySelectorAll('[data-editor]').forEach(el => { el.hidden = !ctx.canEdit; });
++    const selection = `${ctx.song?.id}:${ctx.slides[ctx.slideIndex]?.id}:${ctx.cast.map(c => c.id).join(',')}`;
++    if (force || selection !== lastSelection) {
++      const selected = $('cast').value; $('cast').replaceChildren(...ctx.cast.map(c => new Option(c.character_name, c.id)));
++      if (ctx.cast.some(c => c.id === selected)) $('cast').value = selected;
++      else if (ctx.cast.some(c => c.id === ctx.castId)) $('cast').value = ctx.castId;
++      $('slide').textContent = ctx.slides[ctx.slideIndex]?.label || 'Open a song';
++      lastSelection = selection; refreshActor();
++    }
++    const venue = findVenue(ctx.slides);
++    $('venue-status').textContent = venue ? `Using ${venue.name}. Floor Y = ${venue.anchors[0].world.y.toFixed(2)}.` : 'No calibration yet.';
++    if (anchorSong !== ctx.song?.id) {
++      anchors = venue ? structuredClone(venue.anchors) : [{u:200,v:550},{u:1000,v:550},{u:200,v:150}];
++      $('venue-name').value = venue?.name || 'Main stage'; anchorSong = ctx.song?.id; drawAnchors();
++    }
++  }
++
++  async function tick() {
++    if (!panel.hidden) refresh();
++    if (!connected || sending) return;
++    sending = true;
++    try {
++      const ctx = getContext();
++      if (ctx.song?.id !== lastSong) { lastPackage = ''; lastSong = ctx.song?.id; }
++      const active = Boolean(ctx.active && ctx.song && ctx.slides.length);
++      const pkg = active ? compilePackage(ctx) : null;
++      const serialized = pkg ? JSON.stringify(pkg) : '';
++      // Take the audio timestamp AFTER compiling, immediately before sending.
++      const playback = getContext();
++      const transport = { sessionId, sequence: ++sequence, songId: ctx.song?.id || '', positionMs: playback.positionMs,
++        playing: active && playback.playing, active };
++      await request('state', { package: serialized !== lastPackage ? pkg : null, transport });
++      lastPackage = serialized;
++      $('warnings').textContent = pkg?.warnings.join('\n') || '';
++      status(active ? `Connected · ${ctx.song.title} · ${playback.playing ? 'Playing' : 'Paused'}` : 'Connected · open a song');
++    } catch (e) { lastPackage = ''; status(e.message); }
++    finally { sending = false; }
++  }
++  const timer = setInterval(tick, 250);
++  window.addEventListener('pagehide', () => { clearInterval(timer); connected = false; }, { once: true });
++  refresh(true);
++}
++
++function safeName(name) { return (name || 'rehearsal').replace(/[^a-z0-9_-]+/gi, '-').slice(0, 80); }
++function download(name, value) {
++  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }));
++  const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
++}
+--- /dev/null
++++ b/stage-manager/game-bridge.css
+@@ -0,0 +1,18 @@
++.game-open, .game-panel button, .game-file { background: var(--surface-2, #2e2a22); color: var(--text, #ddd0b5); border: 1px solid var(--primary-dim, #a8862f); border-radius: 6px; padding: 7px 10px; cursor: pointer; font: inherit; }
++.game-open { font-size: 12px; margin-top: 4px; align-self: flex-start; }
++.game-panel { position: fixed; right: 12px; top: 64px; bottom: 80px; width: min(360px, calc(100vw - 24px)); overflow-y: auto; padding: 18px; box-sizing: border-box; z-index: 1500; background: var(--surface, #22201a); color: var(--text, #ddd0b5); border: 1px solid var(--primary-dim, #a8862f); border-radius: 12px; box-shadow: 0 12px 50px #0009; font-size: 13px; line-height: 1.5; }
++.game-panel[hidden], .game-panel [hidden] { display: none !important; }
++.game-panel header { display: flex; align-items: center; justify-content: space-between; }
++.game-panel h2 { margin: 0; font-size: 19px; }
++.game-panel p { margin: 10px 0; }
++.game-panel details { border-top: 1px solid var(--border, #4a3f2e); padding: 13px 0; }
++.game-panel summary { cursor: pointer; font-weight: 600; font-size: 14px; }
++.game-panel label { display: block; margin: 9px 0; }
++.game-panel input, .game-panel select { box-sizing: border-box; width: 100%; padding: 7px; color: var(--text, #ddd0b5); background: var(--bg, #15120e); border: 1px solid var(--border-light, #6a5a42); border-radius: 4px; font: inherit; }
++.game-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
++.game-row label { flex: 1; min-width: 70px; }
++.game-anchor { padding: 10px 0; border-bottom: 1px dashed var(--border, #4a3f2e); }
++.game-anchor small { display: block; margin-top: 6px; }
++.game-panel code { color: var(--primary, #c9a23e); overflow-wrap: anywhere; user-select: all; }
++.game-panel .game-status { color: var(--primary, #c9a23e); }
++.game-panel pre { white-space: pre-wrap; color: #ffd89e; }

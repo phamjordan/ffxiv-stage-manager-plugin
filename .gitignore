@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+.vs/
+.references/
+artifacts/
+__pycache__/
+.DS_Store
+node_modules/

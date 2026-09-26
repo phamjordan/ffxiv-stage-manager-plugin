@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stage Manager prototype · local verification</title>
+<link rel="stylesheet" href="/app.css">
+<style>body{padding:24px;overflow:auto}.demo-title{margin-bottom:10px}.demo-note{color:#998a70;margin-bottom:20px}.stage-viewport{width:calc(100% - 385px);min-width:300px;height:65vh}#stageSvg{width:100%;height:100%;background:#15120e}.player-info{margin-top:12px}button{padding:8px;margin:4px}</style></head>
+<body><h1 class="demo-title">Stage Manager · In-game rehearsal</h1><p class="demo-note">Local verification fixture · No production account or database connection</p>
+<button id="next">Next slide</button>
+<div class="stage-viewport"><svg id="stageSvg" viewBox="0 0 1200 700"><defs></defs><rect width="1200" height="700" fill="#2e2a22"/><g id="stageShapes"></g><g id="stageArrows"></g><g id="stageCast"></g><g id="stageLabels"></g></svg></div>
+<div class="player-info"><span>Rehearsal fixture</span></div>
+<script type="module">
+import { StageRenderer } from '/stage.js';
+import { initGameBridge } from '/game-bridge.js';
+const ctx = {
+  song: {id:'demo',title:'Rehearsal fixture',duration_ms:20000},
+  cast:[{id:'alice',character_name:'Alice Actor',world:'Ravana',role_name:'Lead',display_color:'#c9a23e'}],
+  slides:[
+    {id:'one',label:'Opening',timestamp_ms:0,order_index:0,stage_data:{cast_positions:[{cast_member_id:'alice',x:400,y:450}],shapes:[{type:'text',x:490,y:100,text:'UPSTAGE'},{type:'text',x:470,y:650,text:'AUDIENCE'}]}},
+    {id:'two',label:'Chorus',timestamp_ms:10000,order_index:1,stage_data:{cast_positions:[{cast_member_id:'alice',x:800,y:350}],shapes:[]}},
+  ],lyrics:[{id:'move',timestamp_ms:5000,line_text:'/nextpos'}],slideIndex:0,castId:'alice',canEdit:true,active:true,positionMs:0,playing:false,
+};
+const renderer = new StageRenderer(document.querySelector('#stageSvg')); renderer.setEditable(true); renderer.load(ctx.slides[0].stage_data,ctx.cast);
+renderer.onUpdate(data=>{ctx.slides[ctx.slideIndex].stage_data=data;});
+initGameBridge({getContext:()=>ctx,saveCurrentStage:data=>renderer.commitStageData(data)});
+document.querySelector('#next').onclick=()=>{ctx.slideIndex=1;renderer.load(ctx.slides[1].stage_data,ctx.cast);};
+window.fixture = {ctx,renderer};
+</script></body></html>

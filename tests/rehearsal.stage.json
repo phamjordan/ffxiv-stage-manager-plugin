@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "songId": "song",
+  "title": "Rehearsal fixture",
+  "durationMs": 20000,
+  "venue": {
+    "id": "theatre",
+    "name": "Test theatre",
+    "scope": {
+      "territory": 339,
+      "world": 21,
+      "ward": 0,
+      "plot": 0,
+      "room": 0,
+      "houseId": "123",
+      "instance": 0
+    }
+  },
+  "cast": [
+    {
+      "id": "alice",
+      "name": "Alice Actor",
+      "world": "Ravana",
+      "role": "Lead"
+    },
+    {
+      "id": "bob",
+      "name": "Bob Actor",
+      "world": "Ravana",
+      "role": "Ensemble"
+    }
+  ],
+  "slides": [
+    {
+      "id": "opening",
+      "label": "Opening",
+      "atMs": 0,
+      "positions": [
+        {
+          "castId": "alice",
+          "x": 10,
+          "y": 3,
+          "z": 20,
+          "yaw": 1.5707963267948966,
+          "emote": ""
+        },
+        {
+          "castId": "bob",
+          "x": 10,
+          "y": 3,
+          "z": 22,
+          "yaw": 1.5707963267948966,
+          "emote": ""
+        }
+      ]
+    },
+    {
+      "id": "chorus",
+      "label": "Chorus",
+      "atMs": 10000,
+      "positions": [
+        {
+          "castId": "alice",
+          "x": 14,
+          "y": 4.25,
+          "z": 30,
+          "yaw": 6.123233995736766e-17,
+          "emote": "beesknees"
+        },
+        {
+          "castId": "bob",
+          "x": 14,
+          "y": 3,
+          "z": 36,
+          "yaw": 1.5707963267948966,
+          "emote": ""
+        }
+      ]
+    },
+    {
+      "id": "exit",
+      "label": "Exit",
+      "atMs": 18000,
+      "positions": []
+    }
+  ],
+  "cues": [
+    {
+      "id": "move:0:0",
+      "atMs": 5000,
+      "kind": "preview",
+      "castIds": [],
+      "slideId": "chorus",
+      "emote": "",
+      "moveAtMs": 10000
+    },
+    {
+      "id": "emote:0:0",
+      "atMs": 11500,
+      "kind": "emote",
+      "castIds": [
+        "alice"
+      ],
+      "slideId": "",
+      "emote": "wave",
+      "moveAtMs": 11500
+    },
+    {
+      "id": "emote:1:0",
+      "atMs": 11500,
+      "kind": "emote",
+      "castIds": [
+        "bob"
+      ],
+      "slideId": "",
+      "emote": "bow",
+      "moveAtMs": 11500
+    }
+  ],
+  "warnings": [
+    "Skipped /nextpos after the last slide."
+  ]
+}

@@ -1,0 +1,15 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.1.1</Version>
+    <Author>Stage Manager</Author>
+    <Name>Stage Manager</Name>
+    <Punchline>Rehearsal positions, local ghosts, and emote cues.</Punchline>
+    <Description>Connect FFXIV Stage Manager to local rehearsal ghosts. Windows prototype; native ghosts await in-game validation.</Description>
+    <RepoUrl>https://github.com/phamjordan/ffxiv-stage-manager-plugin</RepoUrl>
+    <Tags>rehearsal;theatre;stage</Tags>
+    <IsPackable>false</IsPackable>
+    <CanUnloadAsync>true</CanUnloadAsync>
+    <AcceptsFeedback>false</AcceptsFeedback>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Core/StageManager.Core.csproj" /></ItemGroup>
+</Project>
