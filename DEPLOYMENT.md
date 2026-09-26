@@ -43,3 +43,33 @@ files: `stage-manager/game-bridge.js`, `stage-manager/app.js`, and
 `stage-manager/index.html`; the latter two carry the new module version.
 Live files matched the release bundle after deployment; sampled other pages
 also remained identical.
+
+## Four-corner stage calibration — 2026-09-26
+
+- Web commit: `de94093` (three Stage Manager calibration modules)
+- Worker version deployed at 100%: `2519bf02-2b4d-4d19-af49-e70fc453c13d`
+- Previous live version: `c13a294a-d8f0-4aac-8e67-47a42947d928`
+- Stage Manager module version: `9c2fe3ac2e54`
+- Plugin source: `e4f5efa`; custom-feed update: `b4dc587`
+- Plugin release: https://github.com/phamjordan/ffxiv-stage-manager-plugin/releases/tag/v0.1.4
+
+The browser now requires four ordered corners for new calibrations, preserves
+existing three-point mappings, draws the stage outline, and sends the captured
+boundary to the plugin. All four measurements contribute to the affine fit.
+Plugin 0.1.4 displays this boundary and a direction arrow from the local player
+to their current or previewed mark, including live distance and height.
+
+Only five generated assets changed: `game-model.js`, `game-bridge.js`,
+`game-bridge.css`, and the version references in `app.js` and `index.html`, all
+under `/stage-manager/`. The complete isolated asset tree matched the prior
+baseline outside these files. Unrelated changes in the web checkout remain
+uncommitted. The site URL and database schema are unchanged.
+
+Verification: 83 Node/core/bridge checks, the four-corner browser workflow,
+and the release build passed. All 11 live Stage Manager text files and three
+other pages matched the isolated bundle after deployment. The anonymous
+release ZIP passed integrity, manifest, and SHA-256 checks, and the public
+custom feed matched version 0.1.4.0. In-game visual confirmation remains pending.
+
+Release ZIP SHA-256:
+`6b4752c58801335c92a9017514bb788519ef48793f7f1ff0905206a0153883f9`
